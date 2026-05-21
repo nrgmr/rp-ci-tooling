@@ -27,15 +27,19 @@ on:
         description: "GCP Workload Identity Provider"
         type: string
         required: true
+      service-account:
+        description: "GCP service account email used by CI"
+        type: string
+        required: true
+      gar-project:
+        description: "GCP project hosting Artifact Registry"
+        type: string
+        required: true
       override-version-limit:
         description: "Override the concurrent version limit check — use only when retirement of the oldest version is already in progress"
         type: boolean
         default: false
     secrets:
-      SERVICE_ACCOUNT:
-        required: true
-      GAR_PROJECT:
-        required: true
 
 jobs:
   openapi-checks:
@@ -78,5 +82,5 @@ jobs:
           gar-location: ${{ inputs.gar-location }}
           override-version-limit: ${{ inputs.override-version-limit }}
           workload-identity-provider: ${{ inputs.workload-identity-provider }}
-          service-account: ${{ secrets.SERVICE_ACCOUNT }}
-          gar-project: ${{ secrets.GAR_PROJECT }}
+          service-account: ${{ inputs.service-account }}
+          gar-project: ${{ inputs.gar-project }}

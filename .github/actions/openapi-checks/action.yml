@@ -23,10 +23,10 @@ inputs:
     description: "GCP Workload Identity Provider"
     required: true
   service-account:
-    description: "GCP Service Account (pass from secrets)"
+    description: "GCP service account email used by CI"
     required: true
   gar-project:
-    description: "GCP project hosting Artifact Registry (pass from secrets)"
+    description: "GCP project hosting Artifact Registry"
     required: true
 
 runs:

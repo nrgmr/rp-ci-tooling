@@ -55,16 +55,9 @@ The workflow expects `project-dir` to be a uv project with `main.py` exporting a
 | `package-name` | Yes | | Package name used to store the prod spec in Artifact Registry |
 | `gar-location` | No | `us-central1` | Artifact Registry region |
 | `workload-identity-provider` | Yes | | GCP Workload Identity Provider used to authenticate GitHub Actions to GCP |
+| `service-account` | Yes | | GCP service account email used by CI |
+| `gar-project` | Yes | | GCP project hosting Artifact Registry |
 | `override-version-limit` | No | `false` | Allows the version-limit gate to warn instead of fail when route retirement is already in progress |
-
-### Secrets
-
-Pass the remaining secrets through from the caller with `secrets: inherit`, or declare them explicitly:
-
-| Secret | Required | Purpose |
-| --- | --- | --- |
-| `SERVICE_ACCOUNT` | Yes | GCP service account used by CI |
-| `GAR_PROJECT` | Yes | GCP project hosting Artifact Registry |
 
 ### Usage
 
@@ -91,6 +84,8 @@ jobs:
       gar-repository: my-service
       package-name: my-service
       workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
+      service-account: nrg-elp-ci-prod-gha@nrg-bootstrap-master.iam.gserviceaccount.com
+      gar-project: nrg-platsvc-elp-prod
       override-version-limit: ${{ inputs.override-version-limit || false }}
     secrets: inherit
 ```
@@ -225,6 +220,8 @@ jobs:
       gar-repository: my-service
       package-name: my-service
       workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
+      service-account: nrg-elp-ci-prod-gha@nrg-bootstrap-master.iam.gserviceaccount.com
+      gar-project: nrg-platsvc-elp-prod
       override-version-limit: ${{ inputs.override-version-limit || false }}
     secrets: inherit
 
