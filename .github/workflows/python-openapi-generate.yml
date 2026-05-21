@@ -39,7 +39,6 @@ on:
         description: "Override the concurrent version limit check — use only when retirement of the oldest version is already in progress"
         type: boolean
         default: false
-    secrets:
 
 jobs:
   openapi-checks:
