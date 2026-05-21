@@ -20,7 +20,7 @@ inputs:
     description: "Skip version-limit enforcement - set to 'true' only when retirement is in progress"
     default: "false"
   workload-identity-provider:
-    description: "GCP Workload Identity Provider (pass from secrets)"
+    description: "GCP Workload Identity Provider"
     required: true
   service-account:
     description: "GCP Service Account (pass from secrets)"
@@ -70,7 +70,7 @@ runs:
       if: steps.gcp-auth.outcome == 'failure' && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)
       shell: bash
       run: |
-        echo "::error::GCP authentication failed. Verify WORKLOAD_IDENTITY_PROVIDER and SERVICE_ACCOUNT secrets."
+        echo "::error::GCP authentication failed. Verify WORKLOAD_IDENTITY_PROVIDER and SERVICE_ACCOUNT configuration."
         exit 1
 
     - name: Fetch prod spec baseline

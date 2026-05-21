@@ -23,13 +23,15 @@ on:
         description: "Artifact Registry region"
         type: string
         default: "us-central1"
+      workload-identity-provider:
+        description: "GCP Workload Identity Provider"
+        type: string
+        required: true
       override-version-limit:
         description: "Override the concurrent version limit check — use only when retirement of the oldest version is already in progress"
         type: boolean
         default: false
     secrets:
-      WORKLOAD_IDENTITY_PROVIDER:
-        required: true
       SERVICE_ACCOUNT:
         required: true
       GAR_PROJECT:
@@ -75,6 +77,6 @@ jobs:
           gar-repository: ${{ inputs.gar-repository }}
           gar-location: ${{ inputs.gar-location }}
           override-version-limit: ${{ inputs.override-version-limit }}
-          workload-identity-provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          workload-identity-provider: ${{ inputs.workload-identity-provider }}
           service-account: ${{ secrets.SERVICE_ACCOUNT }}
           gar-project: ${{ secrets.GAR_PROJECT }}

@@ -54,15 +54,15 @@ The workflow expects `project-dir` to be a uv project with `main.py` exporting a
 | `gar-repository` | Yes | | Artifact Registry repository name |
 | `package-name` | Yes | | Package name used to store the prod spec in Artifact Registry |
 | `gar-location` | No | `us-central1` | Artifact Registry region |
+| `workload-identity-provider` | Yes | | GCP Workload Identity Provider used to authenticate GitHub Actions to GCP |
 | `override-version-limit` | No | `false` | Allows the version-limit gate to warn instead of fail when route retirement is already in progress |
 
 ### Secrets
 
-Pass secrets through from the caller with `secrets: inherit`, or declare them explicitly:
+Pass the remaining secrets through from the caller with `secrets: inherit`, or declare them explicitly:
 
 | Secret | Required | Purpose |
 | --- | --- | --- |
-| `WORKLOAD_IDENTITY_PROVIDER` | Yes | Authenticate GitHub Actions to GCP |
 | `SERVICE_ACCOUNT` | Yes | GCP service account used by CI |
 | `GAR_PROJECT` | Yes | GCP project hosting Artifact Registry |
 
@@ -90,6 +90,7 @@ jobs:
       gen-spec-env: '{"UM_BASE_URL": "http://localhost", "PUBLIC_ORIGIN": "http://localhost"}'
       gar-repository: my-service
       package-name: my-service
+      workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
       override-version-limit: ${{ inputs.override-version-limit || false }}
     secrets: inherit
 ```
@@ -223,6 +224,7 @@ jobs:
       gen-spec-env: '{"UM_BASE_URL": "http://localhost", "PUBLIC_ORIGIN": "http://localhost"}'
       gar-repository: my-service
       package-name: my-service
+      workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
       override-version-limit: ${{ inputs.override-version-limit || false }}
     secrets: inherit
 
