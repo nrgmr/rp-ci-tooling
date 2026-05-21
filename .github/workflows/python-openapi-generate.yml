@@ -39,9 +39,6 @@ jobs:
   openapi-checks:
     name: Generate spec + API checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ inputs.project-dir }}
     permissions:
       contents: read
       id-token: write
@@ -60,9 +57,11 @@ jobs:
       - uses: astral-sh/setup-uv@v4
 
       - name: Install production dependencies
+        working-directory: ${{ inputs.project-dir }}
         run: uv sync --no-dev
 
       - name: Generate OpenAPI spec
+        working-directory: ${{ inputs.project-dir }}
         env: ${{ fromJson(inputs.gen-spec-env) }}
         run: uv run python "${{ github.workspace }}/.rp-ci-tooling/gen-spec/python/gen_openapi.py" > /tmp/openapi.json
 

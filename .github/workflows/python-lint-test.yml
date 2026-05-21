@@ -12,29 +12,28 @@ jobs:
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ inputs.project-dir }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
       - name: Install dev dependencies
+        working-directory: ${{ inputs.project-dir }}
         run: uv sync --group dev
       - name: ruff check
+        working-directory: ${{ inputs.project-dir }}
         run: uv run ruff check .
       - name: ruff format check
+        working-directory: ${{ inputs.project-dir }}
         run: uv run ruff format --check .
 
   test:
     name: Test (pytest)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ inputs.project-dir }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
       - name: Install dev dependencies
+        working-directory: ${{ inputs.project-dir }}
         run: uv sync --group dev
       - name: pytest
+        working-directory: ${{ inputs.project-dir }}
         run: uv run pytest
