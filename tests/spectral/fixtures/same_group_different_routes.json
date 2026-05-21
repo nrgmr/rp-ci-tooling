@@ -1,0 +1,47 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Test",
+    "version": "3.0.0",
+    "contact": {"name": "Team", "email": "team@test.com"}
+  },
+  "tags": [{"name": "auth", "description": "Auth operations"}],
+  "paths": {
+    "/v1/auth/users": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "List users",
+        "description": "Lists users.",
+        "operationId": "list_users_v1",
+        "responses": {
+          "200": {"description": "Users"},
+          "401": {"description": "Unauthenticated"}
+        }
+      }
+    },
+    "/v2/auth/roles": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "List roles",
+        "description": "Lists roles.",
+        "operationId": "list_roles_v2",
+        "responses": {
+          "200": {"description": "Roles"},
+          "401": {"description": "Unauthenticated"}
+        }
+      }
+    },
+    "/v3/auth/sessions": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "List sessions",
+        "description": "Lists sessions.",
+        "operationId": "list_sessions_v3",
+        "responses": {
+          "200": {"description": "Sessions"},
+          "401": {"description": "Unauthenticated"}
+        }
+      }
+    }
+  }
+}

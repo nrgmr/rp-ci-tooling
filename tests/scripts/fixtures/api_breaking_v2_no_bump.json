@@ -1,0 +1,9 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Test", "version": "1.0.0"},
+  "paths": {
+    "/v2/auth/verify": {
+      "get": {"operationId": "verify_v2", "responses": {"204": {"description": "OK"}}}
+    }
+  }
+}

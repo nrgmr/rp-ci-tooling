@@ -1,0 +1,40 @@
+name: Python lint and test
+
+on:
+  workflow_call:
+    inputs:
+      project-dir:
+        description: "Directory containing the uv project (pyproject.toml)"
+        type: string
+        default: "."
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install dev dependencies
+        run: uv sync --group dev
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format check
+        run: uv run ruff format --check .
+
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install dev dependencies
+        run: uv sync --group dev
+      - name: pytest
+        run: uv run pytest

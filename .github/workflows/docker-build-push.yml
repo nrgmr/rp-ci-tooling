@@ -1,0 +1,101 @@
+name: Docker build and push
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: "Docker image name"
+        type: string
+        required: true
+      gar-repository:
+        description: "Artifact Registry repository name"
+        type: string
+        required: true
+      gar-project:
+        description: "GCP project hosting Artifact Registry"
+        type: string
+        required: true
+      dockerfile:
+        description: "Path to the Dockerfile"
+        type: string
+        default: "./Dockerfile"
+      context:
+        description: "Docker build context path"
+        type: string
+        default: "."
+      gar-location:
+        description: "Artifact Registry region"
+        type: string
+        default: "us-central1"
+    secrets:
+      WORKLOAD_IDENTITY_PROVIDER:
+        required: true
+      SERVICE_ACCOUNT:
+        required: true
+
+jobs:
+  docker:
+    name: Docker (build + push on deploy branches)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+          github.ref == 'refs/heads/staging' ||
+          github.ref == 'refs/heads/main')
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+          github.ref == 'refs/heads/staging' ||
+          github.ref == 'refs/heads/main')
+        run: gcloud auth configure-docker "${{ inputs.gar-location }}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        run: |
+          IMAGE="${{ inputs.gar-location }}-docker.pkg.dev/${{ inputs.gar-project }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
+          TAGS=(
+            --tag "${{ inputs.image-name }}:${{ github.sha }}"
+          )
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            case "${GITHUB_REF}" in
+              refs/heads/develop|refs/heads/staging|refs/heads/main)
+                TAGS+=(--tag "${IMAGE}:${{ github.sha }}")
+                ;;
+            esac
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            TAGS+=(--tag "${IMAGE}:latest")
+          fi
+
+          docker build \
+            --file "${{ inputs.dockerfile }}" \
+            "${TAGS[@]}" \
+            "${{ inputs.context }}"
+
+      - name: Push to Artifact Registry
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/develop' ||
+          github.ref == 'refs/heads/staging' ||
+          github.ref == 'refs/heads/main')
+        run: |
+          IMAGE="${{ inputs.gar-location }}-docker.pkg.dev/${{ inputs.gar-project }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
+          docker push "${IMAGE}:${{ github.sha }}"
+
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            docker push "${IMAGE}:latest"
+          fi

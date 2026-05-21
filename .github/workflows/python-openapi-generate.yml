@@ -1,0 +1,81 @@
+name: Generate OpenAPI spec and run API checks (Python)
+
+on:
+  workflow_call:
+    inputs:
+      project-dir:
+        description: "Directory containing the uv project (pyproject.toml)"
+        type: string
+        default: "."
+      gen-spec-env:
+        description: "JSON object of env vars needed for spec generation (dummy values are fine)"
+        type: string
+        default: "{}"
+      gar-repository:
+        description: "Artifact Registry repository name"
+        type: string
+        required: true
+      package-name:
+        description: "GAR generic package name the prod spec is stored under"
+        type: string
+        required: true
+      gar-location:
+        description: "Artifact Registry region"
+        type: string
+        default: "us-central1"
+      override-version-limit:
+        description: "Override the concurrent version limit check — use only when retirement of the oldest version is already in progress"
+        type: boolean
+        default: false
+    secrets:
+      WORKLOAD_IDENTITY_PROVIDER:
+        required: true
+      SERVICE_ACCOUNT:
+        required: true
+      GAR_PROJECT:
+        required: true
+
+jobs:
+  openapi-checks:
+    name: Generate spec + API checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir }}
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+      issues: write   # required for github.rest.issues.createComment on PR timelines
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout reusable workflow tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .rp-ci-tooling
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install production dependencies
+        run: uv sync --no-dev
+
+      - name: Generate OpenAPI spec
+        env: ${{ fromJson(inputs.gen-spec-env) }}
+        run: uv run python "${{ github.workspace }}/.rp-ci-tooling/gen-spec/python/gen_openapi.py" > /tmp/openapi.json
+
+      - name: Verify spec is valid JSON
+        run: python3 -c "import json; json.load(open('/tmp/openapi.json')); print('spec: valid JSON')"
+
+      - uses: ./.rp-ci-tooling/.github/actions/openapi-checks
+        with:
+          spec-path: /tmp/openapi.json
+          package-name: ${{ inputs.package-name }}
+          gar-repository: ${{ inputs.gar-repository }}
+          gar-location: ${{ inputs.gar-location }}
+          override-version-limit: ${{ inputs.override-version-limit }}
+          workload-identity-provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service-account: ${{ secrets.SERVICE_ACCOUNT }}
+          gar-project: ${{ secrets.GAR_PROJECT }}
