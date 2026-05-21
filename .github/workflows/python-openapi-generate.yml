@@ -72,7 +72,8 @@ jobs:
         run: uv run python "${{ github.workspace }}/.rp-ci-tooling/gen-spec/python/gen_openapi.py" > /tmp/openapi.json
 
       - name: Verify spec is valid JSON
-        run: python3 -c "import json; json.load(open('/tmp/openapi.json')); print('spec: valid JSON')"
+        run: |
+          python3 -c "import json; json.load(open('/tmp/openapi.json')); print('spec: valid JSON')"
 
       - uses: ./.rp-ci-tooling/.github/actions/openapi-checks
         with:
