@@ -39,10 +39,6 @@ on:
         description: "Override the concurrent version limit check — use only when retirement of the oldest version is already in progress"
         type: boolean
         default: false
-    secrets:
-      ci-tooling-token:
-        description: "PAT with contents:read on nrgmr/rp-ci-tooling — required for self-checkout in private repo"
-        required: true
 
 jobs:
   openapi-checks:
@@ -62,7 +58,6 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .rp-ci-tooling
-          token: ${{ secrets.ci-tooling-token }}
 
       - uses: astral-sh/setup-uv@v4
 
