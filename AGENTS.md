@@ -109,3 +109,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pytest -v
 ```
+
+Coverage is measured against `scripts/` and enforced at 80%. pytest-cov runs automatically
+via `addopts` in `pyproject.toml` — no extra flags needed. The final pytest output line will
+confirm `Required test coverage of 80% reached` or fail the run if it drops below.

@@ -35,7 +35,7 @@ uses: nrgmr/rp-ci-tooling/.github/workflows/python-lint-test.yml@main
 
 ## This repo's own CI
 
-`tooling-ci.yml` runs on every push and pull request. It lints and formats `scripts/` with ruff, then runs the full pytest suite alongside oasdiff and Spectral. No external secrets are required.
+`tooling-ci.yml` runs on pull requests and pushes to `main`. It lints and formats `scripts/` with ruff, then runs the full pytest suite alongside oasdiff and Spectral. Coverage is measured against `scripts/` and must stay at or above 80%. No external secrets are required.
 
 To run the same checks locally:
 
