@@ -1,0 +1,369 @@
+name: OpenAPI Checks
+description: >
+  Spectral lint, oasdiff version enforcement, and concurrent-version-limit check
+  for a generated OpenAPI spec. Language-agnostic - call from any spec-generating workflow.
+
+inputs:
+  spec-path:
+    description: "Path to the generated OpenAPI JSON spec (e.g. /tmp/openapi.json)"
+    required: true
+  package-name:
+    description: "GAR generic package name the prod spec is stored under"
+    required: true
+  gar-repository:
+    description: "Artifact Registry repository name"
+    required: true
+  gar-location:
+    description: "Artifact Registry region"
+    default: "us-central1"
+  override-version-limit:
+    description: "Skip version-limit enforcement - set to 'true' only when retirement is in progress"
+    default: "false"
+  workload-identity-provider:
+    description: "GCP Workload Identity Provider"
+    required: true
+  service-account:
+    description: "GCP service account email used by CI"
+    required: true
+  gar-project:
+    description: "GCP project hosting Artifact Registry"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install Spectral
+      shell: bash
+      run: npm install -g @stoplight/spectral-cli@6
+
+    - name: Spectral lint
+      shell: bash
+      run: |
+        RULESET="${{ github.action_path }}/../../../spectral/rp-base.spectral.js"
+        [ -f ".spectral.yaml" ] && RULESET=".spectral.yaml"
+        spectral lint "${{ inputs.spec-path }}" --ruleset "$RULESET"
+
+    - name: Install oasdiff
+      shell: bash
+      run: |
+        curl -sSfL https://github.com/tufin/oasdiff/releases/download/v1.15.3/oasdiff_1.15.3_linux_amd64.tar.gz \
+          | tar -xz -C /usr/local/bin oasdiff
+        oasdiff --version
+
+    # Auth needed for baseline fetch (PRs) and spec publish (main push).
+    - name: Authenticate to Google Cloud
+      id: gcp-auth
+      if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+      continue-on-error: true
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.workload-identity-provider }}
+        service_account: ${{ inputs.service-account }}
+
+    # Fork PRs lack secrets by design - auth failure is expected there.
+    # Any other context (non-fork PR, workflow_dispatch, main push) must have working creds.
+    - name: Fail if GCP auth required but unavailable
+      if: steps.gcp-auth.outcome == 'failure' && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)
+      shell: bash
+      run: |
+        echo "::error::GCP authentication failed. Verify WORKLOAD_IDENTITY_PROVIDER and SERVICE_ACCOUNT configuration."
+        exit 1
+
+    - name: Fetch prod spec baseline
+      id: baseline
+      if: steps.gcp-auth.outcome == 'success'
+      shell: bash
+      run: |
+        mkdir -p /tmp/baseline
+        set +e
+
+        download_baseline() {
+          local version="$1"
+          echo "Fetching prod spec baseline version: $version"
+          OUTPUT=$(gcloud artifacts generic download \
+            --project="${{ inputs.gar-project }}" \
+            --location="${{ inputs.gar-location }}" \
+            --repository="${{ inputs.gar-repository }}" \
+            --package="${{ inputs.package-name }}" \
+            --version="$version" \
+            --destination="/tmp/baseline/" 2>&1)
+          EXIT=$?
+          if [[ "$EXIT" == "0" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            return 0
+          elif echo "$OUTPUT" | grep -qiE "NOT_FOUND|does not exist|not found"; then
+            return 1
+          else
+            echo "$OUTPUT"
+            echo "::error::Baseline fetch failed. Check GAR configuration (project, repository, package name)."
+            exit "$EXIT"
+          fi
+        }
+
+        LIST_OUTPUT=$(gcloud artifacts versions list \
+          --project="${{ inputs.gar-project }}" \
+          --location="${{ inputs.gar-location }}" \
+          --repository="${{ inputs.gar-repository }}" \
+          --package="${{ inputs.package-name }}" \
+          --sort-by="~create_time" \
+          --format="value(name)" 2>&1)
+        LIST_EXIT=$?
+        if [[ "$LIST_EXIT" != "0" ]]; then
+          if echo "$LIST_OUTPUT" | grep -qiE "NOT_FOUND|does not exist|not found"; then
+            LIST_OUTPUT=""
+          else
+            echo "$LIST_OUTPUT"
+            echo "::error::Could not list Artifact Registry spec versions."
+            exit "$LIST_EXIT"
+          fi
+        fi
+
+        LATEST_SHA_VERSION=$(printf '%s\n' "$LIST_OUTPUT" | sed 's#.*/##' | grep '^sha-' | head -n 1)
+        if [[ -n "$LATEST_SHA_VERSION" ]] && download_baseline "$LATEST_SHA_VERSION"; then
+          exit 0
+        fi
+
+        if download_baseline "prod-baseline"; then
+          exit 0
+        fi
+
+        echo "No prod baseline found in Artifact Registry - new service or first deploy."
+
+    # PR only: notify reviewers that this is a new service with no prod baseline yet.
+    # Condition includes gcp-auth.outcome == 'success' to avoid firing on fork PRs where auth is skipped.
+    - name: Comment - new service, no baseline
+      if: steps.gcp-auth.outcome == 'success' && steps.baseline.outputs.found != 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const marker = '<!-- rp-ci-tooling:api-checks:new-service -->';
+          const heading = '### API checks - new service';
+          const body = [
+            heading,
+            marker,
+            '',
+            'No prod spec baseline found in Artifact Registry.',
+            'Spectral lint has run against the generated spec, but no version-diff comparison is possible yet.',
+            '',
+            'The spec will be published to AR on the first push to `main`, establishing the baseline for future PRs.',
+          ].join('\n');
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100,
+          });
+          const existing = comments.find((comment) =>
+            comment.user?.type === 'Bot' &&
+            (comment.body?.includes(marker) ||
+              (comment.body?.includes('API checks') && comment.body?.includes('new service')))
+          );
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+          }
+
+    - name: API version enforcement
+      id: version-check
+      if: steps.baseline.outputs.found == 'true'
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/../../../scripts/openapi_version_check.py" \
+          "/tmp/baseline/${{ inputs.package-name }}-prod-spec.json" \
+          "${{ inputs.spec-path }}"
+
+    # PR only: alert reviewers that breaking changes are included so they verify consumer impact.
+    - name: Comment - breaking change notice
+      if: steps.version-check.outputs.has_breaking == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const marker = '<!-- rp-ci-tooling:api-checks:breaking-change -->';
+          const heading = '### API checks - breaking change';
+          const body = [
+            heading,
+            marker,
+            '',
+            'This PR introduces **breaking API changes**. Version bump and path versioning have been verified by CI.',
+            '',
+            'Before merging, confirm:',
+            '- All consumer services in the IAM `roles/run.invoker` bindings have been notified.',
+            '- Old version paths are retained until all consumers have migrated.',
+          ].join('\n');
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100,
+          });
+          const existing = comments.find((comment) =>
+            comment.user?.type === 'Bot' &&
+            (comment.body?.includes(marker) ||
+              (comment.body?.includes('API checks') && comment.body?.includes('breaking change')))
+          );
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+          }
+
+    # Enforce <=2 consecutive live major versions per full route path in the current spec.
+    # Routes (/api/v{N}/auth/users, /api/v{N}/reports/list, etc.) version independently.
+    # To override: the caller must expose a workflow_dispatch input and pass it
+    # to this action as override-version-limit.
+    - name: Check concurrent version limit
+      id: version-limit
+      shell: bash
+      run: |
+        set +e
+        python3 "${{ github.action_path }}/../../../scripts/openapi_version_limit_check.py" \
+          "${{ inputs.spec-path }}"
+        EXIT_CODE=$?
+        if [[ "$EXIT_CODE" == "2" ]]; then
+          echo "exceeded=true" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.override-version-limit }}" == "true" ]]; then
+            echo "::warning::Version limit violation but override is active - proceeding. Ensure route version retirement is tracked and in progress."
+          else
+            echo "::error::Cannot proceed: route version limit violated. Retire old or skipped route versions first, or re-run the workflow with override-version-limit set to true."
+            exit 1
+          fi
+        elif [[ "$EXIT_CODE" != "0" ]]; then
+          echo "::error::Version limit check failed unexpectedly - see logs above."
+          exit 1
+        fi
+
+    # PR only: comment when the version limit is violated, whether or not the override is active.
+    - name: Comment - version limit violation
+      if: (success() || failure()) && steps.version-limit.outputs.exceeded == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const override = '${{ inputs.override-version-limit }}' === 'true';
+          const marker = '<!-- rp-ci-tooling:api-checks:version-limit -->';
+          const heading = override
+            ? '### API checks - version limit override active'
+            : '### API checks - version limit violation';
+          const body = override
+            ? [
+                heading,
+                marker,
+                '',
+                'This PR violates the route version limit for one or more route paths, but the override was set on this run.',
+                '',
+                'Confirm that route version retirement is tracked and in progress before merging.',
+              ].join('\n')
+            : [
+                heading,
+                marker,
+                '',
+                'This PR violates the route version limit for one or more route paths. Each route may expose at most 2 consecutive major versions in the current spec.',
+                '',
+                'Retire old or skipped route versions before merging. If retirement is already in progress and you need to unblock this PR, re-run the workflow with **override-version-limit** set to `true`.',
+              ].join('\n');
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100,
+          });
+          const existing = comments.find((comment) =>
+            comment.user?.type === 'Bot' &&
+            (comment.body?.includes(marker) ||
+              (comment.body?.includes('API checks') &&
+                (comment.body?.includes('version limit exceeded') ||
+                  comment.body?.includes('version limit violation') ||
+                  comment.body?.includes('version limit override active'))))
+          );
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+          }
+
+    # Main push only: publish the generated spec as the new prod baseline.
+    - name: Publish spec to Artifact Registry
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.gcp-auth.outcome == 'success'
+      shell: bash
+      run: |
+        cp "${{ inputs.spec-path }}" "/tmp/${{ inputs.package-name }}-prod-spec.json"
+        SHA_VERSION="sha-${{ github.sha }}"
+        # The immutable SHA version is the source of truth used by future checks.
+        SHA_OUTPUT=$(gcloud artifacts generic upload \
+          --project="${{ inputs.gar-project }}" \
+          --location="${{ inputs.gar-location }}" \
+          --repository="${{ inputs.gar-repository }}" \
+          --package="${{ inputs.package-name }}" \
+          --version="$SHA_VERSION" \
+          --source="/tmp/${{ inputs.package-name }}-prod-spec.json" 2>&1)
+        SHA_EXIT=$?
+        if [[ "$SHA_EXIT" != "0" ]]; then
+          if echo "$SHA_OUTPUT" | grep -qiE "ALREADY_EXISTS|already exists"; then
+            echo "::notice::Spec baseline $SHA_VERSION already exists; continuing."
+          else
+            echo "$SHA_OUTPUT"
+            echo "::error::Failed to upload immutable SHA-tagged prod spec baseline."
+            exit "$SHA_EXIT"
+          fi
+        fi
+
+        # prod-baseline is a compatibility alias only. Checks prefer the latest sha-* version.
+        gcloud artifacts versions delete prod-baseline \
+          --package="${{ inputs.package-name }}" \
+          --repository="${{ inputs.gar-repository }}" \
+          --project="${{ inputs.gar-project }}" \
+          --location="${{ inputs.gar-location }}" \
+          --quiet 2>/dev/null || true
+        ALIAS_OUTPUT=$(gcloud artifacts generic upload \
+          --project="${{ inputs.gar-project }}" \
+          --location="${{ inputs.gar-location }}" \
+          --repository="${{ inputs.gar-repository }}" \
+          --package="${{ inputs.package-name }}" \
+          --version=prod-baseline \
+          --source="/tmp/${{ inputs.package-name }}-prod-spec.json" 2>&1)
+        ALIAS_EXIT=$?
+        if [[ "$ALIAS_EXIT" != "0" ]]; then
+          echo "$ALIAS_OUTPUT"
+          echo "::warning::Could not refresh prod-baseline alias; future checks will use $SHA_VERSION."
+        fi
+
+    # Placeholder for future Teams notification when a route major version bump ships to prod.
+    - name: Placeholder - Teams route major version bump notification
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.version-check.outputs.is_major_bump == 'true'
+      shell: bash
+      run: |
+        # TODO: implement Teams notification for route major version bumps.

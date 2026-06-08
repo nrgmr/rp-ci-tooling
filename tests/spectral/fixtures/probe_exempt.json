@@ -1,0 +1,22 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Test",
+    "version": "1.0.0",
+    "contact": {"name": "Team", "email": "team@test.com"}
+  },
+  "tags": [{"name": "probe", "description": "Liveness and readiness probes"}],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": ["probe"],
+        "summary": "Health check",
+        "description": "Returns 204 when the service is healthy.",
+        "operationId": "healthz",
+        "responses": {
+          "204": {"description": "Healthy"}
+        }
+      }
+    }
+  }
+}
