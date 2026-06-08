@@ -1,8 +1,12 @@
 name: PR title check
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+  statuses: write
 
 jobs:
   pr-title:
