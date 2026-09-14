@@ -279,7 +279,7 @@ When the merge is into the staging branch, this workflow also checks whether its
 
 A pull request opened with `GITHUB_TOKEN` triggers no workflows, so this repo's own required checks would never start on the PRs this workflow opens. The GitHub App identity does not carry that restriction. Each calling repo creates and installs its own release-bot GitHub App, scoped to `Contents: Read and write` / `Pull requests: Read and write` on that repo only; the two secrets above must come from that App, not from `GITHUB_TOKEN`. `Contents: write` is required here, not just `Read`, because invalidating a stale `approved-<staging-branch>` tag deletes a Git ref.
 
-If your repo accepts pull requests from forks, use a plain `pull_request` trigger only if you are certain those merges never need the secrets above — GitHub withholds repository secrets from `pull_request`-triggered runs whenever the pull request's head is a fork, even after that pull request merges. A repo where every contributor pushes branches directly (no forks) is unaffected.
+GitHub withholds repository secrets from `pull_request`-triggered runs whenever the pull request's head is a fork, even after that pull request merges. This workflow detects that case and fails with a clear error rather than an opaque credential error from the token-mint step. A repo where every contributor pushes branches directly (no forks) is unaffected.
 
 ### Usage
 

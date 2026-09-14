@@ -56,6 +56,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # GitHub withholds repository secrets from pull_request-triggered runs
+      # whenever the pull request's head is a fork, even after it merges (see
+      # docs/tools.md). Without this check, that shows up here as an opaque
+      # JWT/credential error from the token-mint step below, with nothing
+      # pointing at the actual cause.
+      - name: Reject fork-head merges
+        if: github.event.pull_request.head.repo.fork
+        run: |
+          echo "::error::This pull request's head is a fork. GitHub withholds repository secrets from pull_request-triggered runs on fork-head PRs, even after merge, so RELEASE_BOT_APP_ID/RELEASE_BOT_PRIVATE_KEY are unavailable here. See docs/tools.md."
+          exit 1
+
       - name: Checkout reusable workflow tooling
         uses: actions/checkout@v4
         with:
