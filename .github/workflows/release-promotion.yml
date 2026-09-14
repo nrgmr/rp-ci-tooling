@@ -1,0 +1,207 @@
+name: Release promotion
+
+# Cuts a dedicated branch from source-branch's current tip and opens a pull
+# request into target-branch. Never merges automatically - merging stays a
+# human decision. Serves both promotion legs in the
+# develop -> staging -> main model:
+#   - develop -> staging: scheduled candidate cuts (a caller's
+#     staging-candidate.yml, cron + workflow_dispatch)
+#   - staging -> main: on-demand promotion (a caller's prod-promotion.yml,
+#     workflow_dispatch only - leave cut-day/interval-weeks/anchor-date unset)
+#
+# The dedicated branch (release/<label>-<target-branch>) freezes
+# source-branch's content at cut time: later commits on source-branch do not
+# silently join an already-open promotion, the way they would if the PR's
+# head were source-branch itself.
+#
+# require-approval closes a narrower gap than that: even with the dedicated
+# branch, cutting from source-branch's live tip means a fix merged into it
+# after a human approved its current state (see approve-staging.yml) would
+# still silently ride the next promotion. With require-approval set, the cut
+# reads the exact commit an `approved-<source-branch>` tag points at instead,
+# and fails clearly if that tag does not exist, rather than falling back to
+# the live tip.
+#
+# GITHUB_TOKEN cannot do this: creating a branch (or, with require-approval,
+# only reading a tag) is a write to repository contents, which this
+# workflow's own `permissions:` block does not grant (it never needs to -
+# only the release bot's own token writes anything here). The release bot
+# App must be scoped `Contents: Read and write` for the git ref creation
+# below to succeed.
+
+on:
+  workflow_call:
+    inputs:
+      source-branch:
+        description: "Branch to cut the release branch from"
+        type: string
+        required: true
+      target-branch:
+        description: "Branch the pull request targets"
+        type: string
+        required: true
+      cut-day:
+        description: >
+          Day of week a cut is due (e.g. "Monday"). Leave unset to disable
+          scheduled cuts - workflow_dispatch always cuts, which is how the
+          first one happens.
+        type: string
+        default: ""
+      interval-weeks:
+        description: "Cut cadence in weeks, relative to anchor-date."
+        type: string
+        default: ""
+      anchor-date:
+        description: "Any past date (YYYY-MM-DD, UTC) that was a valid cut day."
+        type: string
+        default: ""
+      require-approval:
+        description: >
+          Cut from the exact commit the `approved-<source-branch>` tag
+          points at (see approve-staging.yml), failing if that tag does not
+          exist, instead of source-branch's live tip.
+        type: boolean
+        default: false
+    secrets:
+      RELEASE_BOT_APP_ID:
+        required: true
+      RELEASE_BOT_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Scoped per target-branch, not per caller: GitHub scopes concurrency groups
+# per-repository already, so two different repos calling this workflow never
+# collide on this key. Without it, two overlapping runs (a scheduled cut
+# firing while a workflow_dispatch is mid-run, for example) could both pass
+# the "anything to propose" and "already open" checks before either writes
+# anything, producing two release/* branches and two competing PRs into the
+# same target. cancel-in-progress stays false: cancelling a mid-flight run
+# could leave a cut branch behind with no PR ever opened for it, which is
+# worse than the second run simply queuing.
+concurrency:
+  group: release-promotion-${{ inputs.target-branch }}
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SOURCE: ${{ inputs.source-branch }}
+      TARGET: ${{ inputs.target-branch }}
+      CUT_DAY: ${{ inputs.cut-day }}
+      INTERVAL_WEEKS: ${{ inputs.interval-weeks }}
+      ANCHOR: ${{ inputs.anchor-date }}
+    steps:
+      - name: Is a cut due today
+        id: due
+        run: |
+          # Unconfigured, this proposes nothing on a schedule.
+          # workflow_dispatch still cuts, which is how the first one happens
+          # and how an on-demand leg (e.g. staging -> main) always behaves.
+          if [ -z "$CUT_DAY" ] || [ -z "$INTERVAL_WEEKS" ] || [ -z "$ANCHOR" ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "due=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Pass cut-day, interval-weeks and anchor-date to schedule cuts." >> "$GITHUB_STEP_SUMMARY"
+            echo "due=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          today=$(date -u +%F)
+          if [ "$(date -u -d "$today" +%A)" != "$CUT_DAY" ]; then
+            echo "$today is not a $CUT_DAY" >> "$GITHUB_STEP_SUMMARY"
+            echo "due=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          days=$(( ($(date -u -d "$today" +%s) - $(date -u -d "$ANCHOR" +%s)) / 86400 ))
+          if [ "$days" -lt 0 ] || [ $(( (days / 7) % INTERVAL_WEEKS )) -ne 0 ]; then
+            echo "$today falls between cuts" >> "$GITHUB_STEP_SUMMARY"
+            echo "due=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "due=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout reusable workflow tooling
+        if: steps.due.outputs.due == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .rp-ci-tooling
+
+      - name: Mint a token for the release bot
+        id: app-token
+        if: steps.due.outputs.due == 'true'
+        uses: ./.rp-ci-tooling/.github/actions/mint-release-bot-token
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - name: Propose the release
+        if: steps.due.outputs.due == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REQUIRE_APPROVAL: ${{ inputs.require-approval }}
+        run: |
+          # A second candidate would only compete with the open one. Matched
+          # by prefix, not an exact branch name, since the label makes every
+          # cut's branch name unique.
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET" --state open \
+            --json headRefName,url -q '[.[] | select(.headRefName | startswith("release/"))][0].url')
+          if [ -n "$existing" ]; then
+            echo "already open: $existing" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Resolve the exact commit to cut from before checking whether
+          # there is anything to propose: with require-approval, that is
+          # whatever was approved, not $SOURCE's live tip, so the "anything
+          # new" check below has to compare against the same commit that
+          # will actually be cut, not the live branch.
+          if [ "$REQUIRE_APPROVAL" = "true" ]; then
+            tag="approved-${SOURCE}"
+            source_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" -q '.object.sha' 2>/dev/null || true)
+            if [ -z "$source_sha" ]; then
+              echo "::error::require-approval is set but no ${tag} tag exists. Approve ${SOURCE} first (see approve-staging.yml)."
+              exit 1
+            fi
+          else
+            source_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${SOURCE}" -q '.object.sha')
+          fi
+
+          # Files, not commits: a merge/rebase/squash always produces at
+          # least one commit unique to the target by SHA even when nothing
+          # actually changed, so a commit-count check would misfire here.
+          file_count=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${TARGET}...${source_sha}" -q '.files | length')
+          if [ "$file_count" = "0" ]; then
+            echo "$SOURCE holds nothing $TARGET does not" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # A human-readable name for the PR and step summary; the branch
+          # name below is the actual mechanism.
+          label="$(date -u +%Y.%m.%d).${{ github.run_number }}"
+          branch="release/${label}-${TARGET}"
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/heads/${branch}" -f sha="$source_sha" >/dev/null
+
+          if [ "$REQUIRE_APPROVAL" = "true" ]; then
+            origin="the commit approved via the \`approved-${SOURCE}\` tag"
+          else
+            origin="\`${SOURCE}\`'s tip at cut time"
+          fi
+
+          gh pr create --repo "$GITHUB_REPOSITORY" \
+            --base "$TARGET" --head "$branch" \
+            --title "release: ${SOURCE} -> ${TARGET} (${label})" \
+            --body "$(printf '%s\n\n%s\n' \
+              "Proposed automatically from ${origin}. Merging is a human decision." \
+              "This branch is frozen: later commits on \`${SOURCE}\` do not silently join this pull request.")" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

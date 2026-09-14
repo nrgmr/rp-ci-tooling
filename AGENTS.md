@@ -78,9 +78,23 @@ When a public reusable workflow changes, update `docs/tools.md` for:
 - input and secret tables
 - behavior descriptions visible to callers
 
+When a new `##` section is added to `docs/tools.md` — a new workflow or a new
+conceptual section — add it to the "Contents" list at the top, in alphabetical
+order, linked to its heading anchor.
+
 Do not add script inventories, directory structure diagrams, internal call graphs, or implementation notes to `README.md` or `docs/tools.md`.
 
 Use sample tags such as `v1.2.0` in examples and make clear that services should replace them with the released tag they are adopting. Do not show `@main` except as an explicit anti-pattern.
+
+## Comment And Documentation Style
+
+Applies to code comments and to every file under `docs/`, `README.md`, and `AGENTS.md`.
+
+- Earn their place: a comment or doc line should say something the reader cannot already get from the code or heading it sits next to.
+- Be clear and easy to follow: prefer plain, direct sentences over dense or clever ones.
+- Be succinct: cut qualifiers, hedges, and asides that do not change what the reader does next.
+- Be useful to the reader: explain the "why," not just the "what" — the reasoning a future editor would otherwise have to reconstruct.
+- Do not mention ticket numbers or other issue-tracker references. A comment or doc should stand on its own without external context.
 
 ## Adding A New Language
 
