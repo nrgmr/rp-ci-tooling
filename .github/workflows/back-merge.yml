@@ -111,13 +111,13 @@ jobs:
             # no-ops. Unlike release-promotion.yml, there is no silent
             # duplicate here to guard against, so a concurrency group would
             # only serialize a path that already self-corrects.
-            existing=$(gh pr list --base "$target" --head "$BASE" --state open --json url -q '.[0].url')
+            existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$target" --head "$BASE" --state open --json url -q '.[0].url')
             if [ -n "$existing" ]; then
               echo "already open: $existing" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
 
-            gh pr create \
+            gh pr create --repo "$GITHUB_REPOSITORY" \
               --base "$target" --head "$BASE" \
               --title "chore: back-merge ${BASE} into ${target}" \
               --body "$(printf '%s\n\n%s\n' \

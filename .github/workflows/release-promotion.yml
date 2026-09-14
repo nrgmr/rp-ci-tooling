@@ -152,9 +152,14 @@ jobs:
         run: |
           # A second candidate would only compete with the open one. Matched
           # by prefix, not an exact branch name, since the label makes every
-          # cut's branch name unique.
-          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET" --state open \
-            --json headRefName,url -q '[.[] | select(.headRefName | startswith("release/"))][0].url')
+          # cut's branch name unique. --paginate walks every open PR against
+          # $TARGET regardless of count - gh pr list's default 30-item limit
+          # would let an older release/* PR go unseen once a target branch
+          # collects more open PRs than that, and this workflow only ever
+          # calls one source branch per target, so "any release/* head" is
+          # unambiguous here.
+          existing=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?base=${TARGET}&state=open" \
+            -q '.[] | select(.head.ref | startswith("release/")) | .html_url' | head -n1)
           if [ -n "$existing" ]; then
             echo "already open: $existing" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -190,7 +195,20 @@ jobs:
           label="$(date -u +%Y.%m.%d).${{ github.run_number }}"
           branch="release/${label}-${TARGET}"
 
-          gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/heads/${branch}" -f sha="$source_sha" >/dev/null
+          # Idempotent on a rerun: if a prior attempt cut this same run's
+          # branch but failed before opening the PR (a transient API error,
+          # a Pull Requests permission only just granted), creating the ref
+          # again would otherwise fail loudly with no way to recover short
+          # of deleting it by hand. Reusing a branch that already points at
+          # source_sha picks up where that attempt left off instead.
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/heads/${branch}" -f sha="$source_sha" >/dev/null 2>&1; then
+            existing_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" -q '.object.sha' 2>/dev/null || true)
+            if [ "$existing_sha" != "$source_sha" ]; then
+              echo "::error::${branch} already exists and does not point at the commit this run means to cut."
+              exit 1
+            fi
+            echo "${branch} already exists from a previous attempt this run - reusing it." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           if [ "$REQUIRE_APPROVAL" = "true" ]; then
             origin="the commit approved via the \`approved-${SOURCE}\` tag"
