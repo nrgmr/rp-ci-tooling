@@ -8,6 +8,17 @@ Examples use the sample tag `v1.2.0`; replace it with the released tag the servi
 uses: nrgmr/rp-ci-tooling/.github/workflows/<workflow>.yml@v1.2.0
 ```
 
+## Contents
+
+- [approve-staging.yml](#approve-stagingyml)
+- [back-merge.yml](#back-mergeyml)
+- [Branch promotion model](#branch-promotion-model)
+- [Combined service workflow](#combined-service-workflow)
+- [docker-build-push.yml](#docker-build-pushyml)
+- [python-lint-test.yml](#python-lint-testyml)
+- [python-openapi-generate.yml](#python-openapi-generateyml)
+- [release-promotion.yml](#release-promotionyml)
+
 ---
 
 ## python-lint-test.yml
@@ -184,6 +195,237 @@ jobs:
       context: ./sidecar
       gar-repository: my-service
       gar-project: my-gcp-project
+    secrets: inherit
+```
+
+---
+
+## Branch promotion model
+
+`back-merge.yml`, `approve-staging.yml`, and `release-promotion.yml` together implement one `develop -> staging -> main` promotion model. Each workflow is documented on its own below; this section shows how they fit together.
+
+**Branch topology** — `release/*` branches are dedicated, frozen cuts; nothing merges into `staging` or `main` from a trunk branch directly.
+
+```mermaid
+%%{init: {"themeVariables": {"edgeLabelBackground": "transparent"}}}%%
+flowchart LR
+    DEV[develop]
+    STG[staging]
+    MAIN[main]
+    FIX["fix/* or cherry-pick/*"]
+    HOTFIX["hotfix/*"]
+
+    DEV -->|"promote via release-promotion.yml"| STG
+    FIX -->|"human merge"| STG
+    HOTFIX -->|"human merge"| MAIN
+    STG -->|"promote via release-promotion.yml"| MAIN
+
+    STG -.->|"back-merge.yml"| DEV
+    MAIN -.->|"back-merge.yml"| STG
+    MAIN -.->|"back-merge.yml"| DEV
+```
+
+Each promotion arrow above cuts a dedicated `release/*` branch that a human then merges; see [back-merge.yml](#back-mergeyml) and [release-promotion.yml](#release-promotionyml) below for exact mechanics. Every back-merge arrow runs a file-diff check, not a commit-count check.
+
+**The approval lifecycle** — a race, not a fixed sequence: whichever happens first between another merge into `staging` and the next promotion decides whether the approval survives to be used.
+
+```mermaid
+sequenceDiagram
+    participant Staging as staging branch
+    participant Approve as approve-staging.yml
+    participant Tag as approved-staging tag
+    participant BackMerge as back-merge.yml
+    participant Promo as release-promotion.yml
+
+    Approve->>Tag: force-move to staging's tip
+    Note over Tag: staging is now "approved"
+    alt another fix merges into staging first
+        Staging->>BackMerge: triggers on merge
+        BackMerge->>Tag: staging != tag -> delete
+        BackMerge-->>BackMerge: notify Teams (if configured)
+    else promotion runs before anything else lands
+        Promo->>Tag: read the approved commit
+        Promo->>Promo: cut release/*-main from it
+    end
+```
+
+---
+
+## back-merge.yml
+
+Opens a pull request carrying a fix back down to the branch(es) below it, whenever a merge into `staging` or `main` leaves the branch below it missing commits. Never merges automatically — merging stays a human decision.
+
+Runs on every merge into `staging` or `main`, including ordinary promotions — it does not infer intent from the head branch's name or prefix. Instead, for each candidate target below the branch that was just merged into, it asks whether the target's files actually differ from what's now on the merged-into branch (`gh api compare/<target>...<base>`, counting `.files`, not `.commits`) — a merge, squash, or rebase always produces at least one commit unique to the target by SHA even when nothing really changed, so a commit-count check would misfire on every ordinary promotion. A promotion PR (`develop -> staging` via a `release/*` branch, `staging -> main` likewise) finds nothing to do, since the source already held everything the target just took. Anything else — a `fix/*` branch merged into `staging`, a `hotfix/*` branch merged into `main` — opens a back-merge into whichever branch(es) below it actually have different files. Branch-policy is a separate, repo-owned concern that governs who is allowed to merge directly into `staging` or `main` in the first place; this workflow only reacts to whatever cleared that gate.
+
+Defaults to the `develop` / `staging` / `main` branch model. If your repo uses different names, pass `develop-branch`, `staging-branch`, and `main-branch` to match.
+
+When the merge is into the staging branch, this workflow also checks whether its approval tag (`approved-<staging-branch>`, see `approve-staging.yml` below) still points at that branch's tip. If the branch moved past it, the tag is deleted — a stale approval tag left in place is a worse trap than no tag at all — and, if `TEAMS_WEBHOOK_URL` is configured, a notification is posted saying it needs re-approval before promoting. Purely informational: this never blocks anything, and a failed notification never fails the job.
+
+### Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `develop-branch` | No | `develop` | Branch that fixes merged into staging or main back-merge into |
+| `staging-branch` | No | `staging` | Branch between develop and main in the promotion chain |
+| `main-branch` | No | `main` | Production branch |
+
+### Secrets
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `RELEASE_BOT_APP_ID` | Yes | App ID of the GitHub App installed on this repo for opening promotion PRs |
+| `RELEASE_BOT_PRIVATE_KEY` | Yes | Private key for that GitHub App |
+| `TEAMS_WEBHOOK_URL` | No | Teams incoming webhook URL. Unset skips the notification with a step-summary note — never fails the job. |
+
+A pull request opened with `GITHUB_TOKEN` triggers no workflows, so this repo's own required checks would never start on the PRs this workflow opens. The GitHub App identity does not carry that restriction. Each calling repo creates and installs its own release-bot GitHub App, scoped to `Contents: Read and write` / `Pull requests: Read and write` on that repo only; the two secrets above must come from that App, not from `GITHUB_TOKEN`. `Contents: write` is required here, not just `Read`, because invalidating a stale `approved-<staging-branch>` tag deletes a Git ref.
+
+GitHub withholds repository secrets from `pull_request`-triggered runs whenever the pull request's head is a fork, even after that pull request merges. This workflow detects that case and fails with a clear error rather than an opaque credential error from the token-mint step. A repo where every contributor pushes branches directly (no forks) is unaffected.
+
+### Usage
+
+```yaml
+name: Back-merge
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/back-merge.yml@v1.2.0
+    # Only needed if your branch names differ from the develop / staging / main defaults:
+    # with:
+    #   develop-branch: dev
+    #   staging-branch: stage
+    #   main-branch: production
+    secrets: inherit
+```
+
+---
+
+## approve-staging.yml
+
+Marks the current tip of the staging branch as approved by force-moving a floating tag, `approved-<staging-branch>`, to point at it — the same floating-tag mechanic this repo's own `release-please.yml` uses for its major-version tag. `workflow_dispatch` only: approval is a deliberate human action, not something inferred from CI passing or a schedule.
+
+Pass `require-approval: true` to `release-promotion.yml` (below) so a promotion resolves the exact commit this tag points at instead of the staging branch's live tip — a fix merged into it after approval can't silently ride an already-approved promotion. See `back-merge.yml` above for the other half: it invalidates this tag automatically the moment the staging branch moves past it.
+
+### Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `staging-branch` | No | `staging` | Branch to approve. Must match the `staging-branch` passed to `back-merge.yml`, since the tag name is derived from it. |
+
+### Secrets
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `RELEASE_BOT_APP_ID` | Yes | App ID of the GitHub App installed on this repo |
+| `RELEASE_BOT_PRIVATE_KEY` | Yes | Private key for that GitHub App |
+
+Moving a tag is a write to repository contents, same as cutting a release branch in `release-promotion.yml` — the release bot App must be scoped `Contents: Read and write`.
+
+### Usage
+
+```yaml
+name: Approve staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  approve:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/approve-staging.yml@v1.2.0
+    # Only needed if your staging branch has a different name:
+    # with:
+    #   staging-branch: stage
+    secrets: inherit
+```
+
+---
+
+## release-promotion.yml
+
+Cuts a dedicated branch (`release/<label>-<target-branch>`) from `source-branch`'s current tip and opens a pull request into `target-branch`. Never merges automatically. The dedicated branch freezes the source's content at cut time — later commits on `source-branch` do not silently join an already-open promotion, the way they would if the PR's head were `source-branch` itself.
+
+Serves both legs of the `develop -> staging -> main` model from one parameterized workflow:
+
+- **`develop -> staging`** (candidate cuts): caller has a `schedule` trigger and passes `cut-day` / `interval-weeks` / `anchor-date`. Runs (e.g. daily) because a `schedule` trigger cannot read a repository variable directly — the job checks those three inputs and no-ops most days unless a cut is actually due.
+- **`staging -> main`** (on-demand promotion): caller has only `workflow_dispatch`, no `schedule`, and leaves the cadence inputs unset — every dispatch cuts.
+
+Also skips cutting a new branch (regardless of cadence) when `source-branch` holds nothing `target-branch` doesn't already have, or when a `release/*` PR into `target-branch` is already open.
+
+With `require-approval: true`, the branch is cut from the exact commit an `approved-<source-branch>` tag points at (see `approve-staging.yml` above), not from `source-branch`'s live tip — closing the gap where a fix merged in after approval would otherwise silently ride the promotion. The run fails clearly if that tag does not exist, rather than falling back to the live tip. This is the recommended setting for the `staging -> main` leg; the `develop -> staging` leg has no equivalent "approved" concept for `develop` and should leave this unset.
+
+### Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `source-branch` | Yes | | Branch to cut the release branch from |
+| `target-branch` | Yes | | Branch the pull request targets |
+| `cut-day` | No | `""` | Day of week a cut is due (e.g. `Monday`). Empty disables scheduled cuts. |
+| `interval-weeks` | No | `""` | Cut cadence in weeks, relative to `anchor-date`. |
+| `anchor-date` | No | `""` | Any past date (`YYYY-MM-DD`, UTC) that was a valid cut day. |
+| `require-approval` | No | `false` | Cut from the `approved-<source-branch>` tag's commit instead of the live tip; fails if that tag doesn't exist. |
+
+### Secrets
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `RELEASE_BOT_APP_ID` | Yes | App ID of the GitHub App installed on this repo for opening promotion PRs |
+| `RELEASE_BOT_PRIVATE_KEY` | Yes | Private key for that GitHub App |
+
+Same `GITHUB_TOKEN` limitation as `back-merge.yml` above — this workflow needs its own per-repo release-bot App. It also needs more than `back-merge.yml`: creating the dedicated branch is a write to repository contents, so the App must be scoped `Contents: Read and write`, not `Read` only.
+
+### Usage
+
+```yaml
+name: Staging candidate
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  propose:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/release-promotion.yml@v1.2.0
+    with:
+      source-branch: develop
+      target-branch: staging
+      cut-day: ${{ vars.STAGING_CUT_DAY }}
+      interval-weeks: ${{ vars.STAGING_CUT_INTERVAL_WEEKS }}
+      anchor-date: ${{ vars.STAGING_CUT_ANCHOR_DATE }}
+    secrets: inherit
+```
+
+```yaml
+name: Prod promotion
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  propose:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/release-promotion.yml@v1.2.0
+    with:
+      source-branch: staging
+      target-branch: main
+      require-approval: true
     secrets: inherit
 ```
 

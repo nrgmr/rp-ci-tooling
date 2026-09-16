@@ -1,0 +1,73 @@
+name: Approve staging
+
+# Marks the current tip of `staging` as approved by force-moving a floating
+# tag, `approved-staging`, to point at it - the same mechanic
+# release-please.yml's own `update-major-tag` job already uses for its
+# floating major-version tag. release-promotion.yml resolves from this tag,
+# not from staging's live tip, so a fix merged into staging after approval
+# never silently rides an already-approved promotion.
+#
+# workflow_dispatch only: approval is a deliberate human action, not
+# something to infer from CI passing or a schedule. See back-merge.yml for
+# the other half of this: it invalidates this tag (and optionally notifies
+# Teams) the moment staging moves past it.
+
+on:
+  workflow_call:
+    inputs:
+      staging-branch:
+        description: >
+          Branch to approve. Must match the same input passed to
+          back-merge.yml's staging-branch, since the approval tag name is
+          derived from it.
+        type: string
+        default: "staging"
+    secrets:
+      RELEASE_BOT_APP_ID:
+        required: true
+      RELEASE_BOT_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reusable workflow tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .rp-ci-tooling
+
+      # Moving a tag is a write to repository contents, same as cutting a
+      # release branch - the release bot App needs Contents: Read and write.
+      - name: Mint a token for the release bot
+        id: app-token
+        uses: ./.rp-ci-tooling/.github/actions/mint-release-bot-token
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - name: Move the approved-staging tag
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          STAGING_BRANCH: ${{ inputs.staging-branch }}
+        run: |
+          tag="approved-${STAGING_BRANCH}"
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STAGING_BRANCH}" -q '.object.sha')
+
+          # An existing tag ref has to be updated (force), not created - the
+          # create endpoint errors if the ref is already taken.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \
+              -f sha="$sha" -F force=true >/dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${tag}" -f sha="$sha" >/dev/null
+          fi
+
+          echo "${tag} now points at ${sha:0:7}" >> "$GITHUB_STEP_SUMMARY"

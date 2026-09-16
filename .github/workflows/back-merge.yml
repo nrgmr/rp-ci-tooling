@@ -1,0 +1,183 @@
+name: Back-merge
+
+# A fix that lands on `staging` or `main` without coming back down is a
+# regression the next promotion re-introduces silently. Merging stays a human
+# action: the back-merge is where a conflict with in-flight work surfaces.
+#
+# Separate from a repo's own PR-gating checks, which are the merge gate: a
+# required check that also writes to the repository is one nobody can safely
+# require.
+
+on:
+  workflow_call:
+    inputs:
+      develop-branch:
+        description: "Branch that fixes merged into staging or main back-merge into"
+        type: string
+        default: "develop"
+      staging-branch:
+        description: "Branch between develop and main in the promotion chain"
+        type: string
+        default: "staging"
+      main-branch:
+        description: "Production branch"
+        type: string
+        default: "main"
+    secrets:
+      RELEASE_BOT_APP_ID:
+        required: true
+      RELEASE_BOT_PRIVATE_KEY:
+        required: true
+      TEAMS_WEBHOOK_URL:
+        description: >
+          Teams incoming webhook URL, used only to notify when staging's
+          approval goes stale (see the "Check whether staging's approval is
+          now stale" step). Optional - skipped with a step-summary note when
+          unset.
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open:
+    # Deliberately not filtered by head branch name or prefix: naming
+    # conventions drift (a candidate cut's head might be `develop` today and
+    # a dedicated `release/*` branch tomorrow). The step below asks the
+    # actual commit graph ("is target behind base?") instead, which is
+    # correct regardless of what any branch is called. This job runs on
+    # every merge into staging or main, including ordinary promotions, and
+    # simply finds nothing to do on those — a cheap, short-lived token mint
+    # is worth trading for not re-encoding branch-naming assumptions here.
+    if: >-
+      github.event.pull_request.merged &&
+      (github.event.pull_request.base.ref == inputs.staging-branch || github.event.pull_request.base.ref == inputs.main-branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # GitHub withholds repository secrets from pull_request-triggered runs
+      # whenever the pull request's head is a fork, even after it merges (see
+      # docs/tools.md). Without this check, that shows up here as an opaque
+      # JWT/credential error from the token-mint step below, with nothing
+      # pointing at the actual cause.
+      - name: Reject fork-head merges
+        if: github.event.pull_request.head.repo.fork
+        run: |
+          echo "::error::This pull request's head is a fork. GitHub withholds repository secrets from pull_request-triggered runs on fork-head PRs, even after merge, so RELEASE_BOT_APP_ID/RELEASE_BOT_PRIVATE_KEY are unavailable here. See docs/tools.md."
+          exit 1
+
+      - name: Checkout reusable workflow tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .rp-ci-tooling
+
+      # A pull request opened with GITHUB_TOKEN triggers no workflows, so the
+      # required checks never start on these auto-opened PRs without this.
+      - name: Mint a token for the release bot
+        id: app-token
+        uses: ./.rp-ci-tooling/.github/actions/mint-release-bot-token
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - name: Open the back-merge pull requests
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          SOURCE: ${{ github.event.pull_request.html_url }}
+          DEVELOP_BRANCH: ${{ inputs.develop-branch }}
+          STAGING_BRANCH: ${{ inputs.staging-branch }}
+          MAIN_BRANCH: ${{ inputs.main-branch }}
+        run: |
+          # A hotfix has to reach both branches below main.
+          if [ "$BASE" = "$MAIN_BRANCH" ]; then
+            targets="$STAGING_BRANCH $DEVELOP_BRANCH"
+          else
+            targets="$DEVELOP_BRANCH"
+          fi
+
+          for target in $targets; do
+            # Files, not commits: a merge/rebase/squash always produces at
+            # least one commit unique to $BASE by SHA even when nothing
+            # actually changed (an ordinary promotion, for instance), so a
+            # commit-count check would misfire on every one of those. Files
+            # reflect real content divergence regardless of merge strategy.
+            file_count=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${target}...${BASE}" -q '.files | length')
+            if [ "$file_count" = "0" ]; then
+              echo "$BASE holds nothing $target does not" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            # An open one already carries these commits.
+            #
+            # No concurrency group guards this job: two merges into $target
+            # landing close together could both pass this check before
+            # either PR exists, but the second `gh pr create` then simply
+            # errors on the duplicate head/base pair (GitHub refuses two open
+            # PRs with the same head and base) — a loud failure with no bad
+            # state left behind, and a rerun's check finds the first PR and
+            # no-ops. Unlike release-promotion.yml, there is no silent
+            # duplicate here to guard against, so a concurrency group would
+            # only serialize a path that already self-corrects.
+            existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$target" --head "$BASE" --state open --json url -q '.[0].url')
+            if [ -n "$existing" ]; then
+              echo "already open: $existing" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --base "$target" --head "$BASE" \
+              --title "chore: back-merge ${BASE} into ${target}" \
+              --body "$(printf '%s\n\n%s\n' \
+                "Opened automatically after ${SOURCE} merged into \`${BASE}\`." \
+                "Without this, the next promotion into \`${BASE}\` reverts that fix.")" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+      # See approve-staging.yml: `approved-<staging-branch>` is a floating
+      # tag marking what a human last approved. If staging moved past it, a
+      # promotion resolving from that tag would still be correct (it never
+      # reads staging's live tip), but the tag itself is now a stale,
+      # easy-to-trust-by-mistake signal — delete it so its mere existence
+      # stays trustworthy, and let the team know they need to re-approve.
+      - name: Check whether staging's approval is now stale
+        if: (success() || failure()) && github.event.pull_request.base.ref == inputs.staging-branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          STAGING_BRANCH: ${{ inputs.staging-branch }}
+          MAIN_BRANCH: ${{ inputs.main-branch }}
+        run: |
+          tag="approved-${STAGING_BRANCH}"
+          approved_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" -q '.object.sha' 2>/dev/null || true)
+          if [ -z "$approved_sha" ]; then
+            echo "no ${tag} tag set - nothing to invalidate" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          staging_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STAGING_BRANCH}" -q '.object.sha')
+          if [ "$approved_sha" = "$staging_sha" ]; then
+            echo "${STAGING_BRANCH} still matches the last approval" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}"
+          echo "${tag} invalidated: ${STAGING_BRANCH} changed after approval" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "${{ secrets.TEAMS_WEBHOOK_URL }}" ]; then
+            echo "Set the TEAMS_WEBHOOK_URL secret to notify Teams when this happens." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Purely informational: a failed notification never fails this job.
+          payload=$(jq -n --arg text \
+            "Staging changed after approval: [${PR_TITLE}](${PR_URL}) merged into \`${STAGING_BRANCH}\`. Re-approve before promoting to \`${MAIN_BRANCH}\`, or this change will be missed." \
+            '{text: $text}')
+          curl -sf -X POST "${{ secrets.TEAMS_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            || echo "Teams notification failed - see the run log." >> "$GITHUB_STEP_SUMMARY"

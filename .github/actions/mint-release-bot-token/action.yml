@@ -1,0 +1,28 @@
+name: Mint release bot token
+description: >
+  Issues a short-lived GitHub App installation token for opening promotion
+  pull requests. A pull request opened with GITHUB_TOKEN triggers no
+  workflows, so required status checks never start on it; a token minted from
+  a GitHub App identity does not carry that restriction.
+
+inputs:
+  app-id:
+    description: "GitHub App ID for the release bot installed on the calling repository"
+    required: true
+  private-key:
+    description: "GitHub App private key for the release bot"
+    required: true
+
+outputs:
+  token:
+    description: "Short-lived installation access token"
+    value: ${{ steps.mint.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - id: mint
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
