@@ -39,3 +39,4 @@ A scope is optional but encouraged for clarity, e.g. `feat(docker): add multi-pl
 - Manifest: [`.release-please/manifest.json`](../.release-please/manifest.json) - owned by release-please, do not edit by hand
 - Release type: `python` - release-please updates `version` in `pyproject.toml` on each release
 - Changelog sections: `feat`, `fix`, and `perf` are shown in release notes as `Features`, `Bug Fixes`, and `Performance Improvements`; `chore` is configured as hidden. Other conventional types are intentionally omitted from the generated changelog unless the config is expanded.
+- `extra-files` in the `.` package config keeps `uv.lock`'s embedded `rp-ci-tooling` package version in sync with the `pyproject.toml` bump. Without it, release-please's version PR fails CI: `uv sync --locked` rejects a lockfile whose recorded version no longer matches `pyproject.toml`.
