@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0](https://github.com/nrgmr/rp-ci-tooling/compare/v0.1.0...v0.2.0) (2026-09-16)
+
+
+### Features
+
+* add release-bot-token branch promotion workflows ([6fc0bea](https://github.com/nrgmr/rp-ci-tooling/commit/6fc0beaeed4b354faa678ed015254a5274ca7b83))
+* add release-bot-token branch promotion workflows AB[#33175](https://github.com/nrgmr/rp-ci-tooling/issues/33175) ([e884150](https://github.com/nrgmr/rp-ci-tooling/commit/e88415042ca778e100210b7eabc485ae12d78309))
+* fail loudly on fork-head merges in back-merge.yml ([42d80f6](https://github.com/nrgmr/rp-ci-tooling/commit/42d80f645d9e30555997a3d2a93052da8762804f))
+
+
+### Bug Fixes
+
+* address PR review findings on release-bot-token workflows ([2f73755](https://github.com/nrgmr/rp-ci-tooling/commit/2f7375509ef8abe779b9a3963479ea6a5eff503d))
+* **release:** correct jsonpath filter for uv.lock version updater ([bf789b2](https://github.com/nrgmr/rp-ci-tooling/commit/bf789b23738f71e83468cc08fe7e7484073dd208))
+* **release:** correct jsonpath filter for uv.lock version updater ([e420870](https://github.com/nrgmr/rp-ci-tooling/commit/e420870cbe82842c7333d50311a65f6ac06a68ef))
+* **release:** keep uv.lock version in sync with release-please bumps ([e59b4c0](https://github.com/nrgmr/rp-ci-tooling/commit/e59b4c0a7d2b9f080c97938a106d6f8da022bf26))
+* **release:** keep uv.lock version in sync with release-please bumps ([bd5b03b](https://github.com/nrgmr/rp-ci-tooling/commit/bd5b03b94a0d0b52b103f8860beee90040acf2d6))
+
 ## 0.1.0 (2026-06-08)
 
 
