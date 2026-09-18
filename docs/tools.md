@@ -204,11 +204,19 @@ jobs:
 
 ## gitleaks.yml
 
-Scans the full commit history for secrets with [gitleaks](https://github.com/gitleaks/gitleaks). Language-agnostic: every service can call this the same way regardless of what `python-lint-test.yml` / `docker-build-push.yml` variant it also uses.
+Scans for secrets with [gitleaks](https://github.com/gitleaks/gitleaks). Language-agnostic: every service can call this the same way regardless of what `python-lint-test.yml` / `docker-build-push.yml` variant it also uses.
 
 ### Inputs
 
-None.
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | No | `full-history` | `full-history` scans the entire commit history. `pr-diff` scans only the commits new to this PR (`origin/<base>..HEAD`); requires a `pull_request` trigger. Either mode fails the job on a finding, on every trigger, including `schedule`. |
+
+`full-history` rescans the entire history on every run, not just the diff. Adopting it on a repo with a real, unbaselined leak fails every run where this check exists. Before enabling it, run `gitleaks detect --source . -v` locally against the adopting repo and add a [`.gitleaksignore`](https://github.com/gitleaks/gitleaks#creating-a-baseline) baselining anything it finds.
+
+`pr-diff` avoids that adoption hazard entirely, at the cost of never seeing a secret already sitting in history.
+
+Whether a failure here blocks a merge is a branch-protection decision on the caller's repo - mark this job a required status check, or don't - not something this workflow encodes. That also means the same workflow works unchanged on a `schedule` trigger, where there is no PR to block and a failure is the only signal.
 
 ### Usage
 
