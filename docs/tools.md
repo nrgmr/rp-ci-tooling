@@ -15,9 +15,11 @@ uses: nrgmr/rp-ci-tooling/.github/workflows/<workflow>.yml@v1.2.0
 - [Branch promotion model](#branch-promotion-model)
 - [Combined service workflow](#combined-service-workflow)
 - [docker-build-push.yml](#docker-build-pushyml)
+- [gitleaks.yml](#gitleaksyml)
 - [python-lint-test.yml](#python-lint-testyml)
 - [python-openapi-generate.yml](#python-openapi-generateyml)
 - [release-promotion.yml](#release-promotionyml)
+- [trivy-image.yml](#trivy-imageyml)
 
 ---
 
@@ -196,6 +198,71 @@ jobs:
       gar-repository: my-service
       gar-project: my-gcp-project
     secrets: inherit
+```
+
+---
+
+## gitleaks.yml
+
+Scans the full commit history for secrets with [gitleaks](https://github.com/gitleaks/gitleaks). Language-agnostic: every service can call this the same way regardless of what `python-lint-test.yml` / `docker-build-push.yml` variant it also uses.
+
+### Inputs
+
+None.
+
+### Usage
+
+```yaml
+name: Gitleaks
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  gitleaks:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/gitleaks.yml@v1.2.0
+```
+
+---
+
+## trivy-image.yml
+
+Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and uploads the SARIF result to the calling repo's code scanning tab. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`.
+
+### Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `image-ref` | Yes | | Fully qualified image reference to scan, including tag or digest |
+| `workload-identity-provider` | Yes | | GCP Workload Identity Provider used to read the image from Artifact Registry |
+| `service-account` | Yes | | GCP service account impersonated to read the image |
+| `gar-location` | Yes | | Artifact Registry region, used to configure the docker credential helper |
+| `severity` | No | `CRITICAL,HIGH` | Comma-separated severities that fail the scan |
+
+A reusable workflow's job permissions are capped by the caller's grant, so the caller must declare `id-token: write` (for the GCP OIDC auth step) and `security-events: write` (for the SARIF upload) itself, exactly as shown below - omitting them leaves the job with read-only access and the scan fails at runtime.
+
+### Usage
+
+```yaml
+name: Image scan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    uses: nrgmr/rp-ci-tooling/.github/workflows/trivy-image.yml@v1.2.0
+    with:
+      image-ref: us-west1-docker.pkg.dev/my-gcp-project/my-service/my-image:abc1234
+      workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
+      service-account: nrg-elp-ci-prod-gha@nrg-bootstrap-master.iam.gserviceaccount.com
+      gar-location: us-west1
 ```
 
 ---

@@ -1,0 +1,69 @@
+name: Trivy image scan
+
+# Scans an image already pushed to Artifact Registry for known OS and
+# dependency vulnerabilities. Reads the image back from the registry rather
+# than a local docker save/load, so this works the same whether the caller
+# built with `docker build` (docker-build-push.yml) or server-side with Cloud
+# Build - only a pushed, pullable reference is required.
+
+on:
+  workflow_call:
+    inputs:
+      image-ref:
+        description: "Fully qualified image reference to scan, including tag or digest"
+        type: string
+        required: true
+      workload-identity-provider:
+        description: "GCP Workload Identity Provider used to read the image from Artifact Registry"
+        type: string
+        required: true
+      service-account:
+        description: "GCP service account impersonated to read the image"
+        type: string
+        required: true
+      gar-location:
+        description: "Artifact Registry region, used to configure the docker credential helper"
+        type: string
+        required: true
+      severity:
+        description: "Comma-separated severities that fail the scan"
+        type: string
+        default: "CRITICAL,HIGH"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      # Required to upload the SARIF report to the caller repo's code
+      # scanning tab.
+      security-events: write
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+          service_account: ${{ inputs.service-account }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ inputs.gar-location }}-docker.pkg.dev" --quiet
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: ${{ inputs.image-ref }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: ${{ inputs.severity }}
+          exit-code: "1"
+
+      # `always()`: a vulnerability finding above is where the report is most
+      # wanted, and `exit-code: 1` above would otherwise skip this step.
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif

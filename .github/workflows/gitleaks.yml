@@ -1,0 +1,27 @@
+name: Gitleaks
+
+# Secret scan of the full commit history. Standalone from a caller's own
+# lint/test gate so a leaked credential fails independently of any
+# language-specific checks, and so one workflow covers every service
+# regardless of language.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Full history, not the default shallow clone: gitleaks scans commits,
+      # and a shallow clone would only ever see the tip.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
