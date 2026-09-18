@@ -23,7 +23,7 @@ jobs:
     steps:
       # Full history, not the default shallow clone: gitleaks scans commits,
       # and a shallow clone would only ever see the tip.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

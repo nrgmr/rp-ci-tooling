@@ -10,7 +10,7 @@ jobs:
     name: Lint + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
@@ -22,7 +22,7 @@ jobs:
             | tar -xz -C /usr/local/bin oasdiff
           oasdiff --version
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -42,7 +42,7 @@ jobs:
     name: Lint workflows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: reviewdog/action-actionlint@v1
         with:
           fail_level: error
