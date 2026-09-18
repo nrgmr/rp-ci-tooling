@@ -47,10 +47,14 @@ jobs:
           workload_identity_provider: ${{ inputs.workload-identity-provider }}
           service_account: ${{ inputs.service-account }}
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${{ inputs.gar-location }}-docker.pkg.dev" --quiet
 
       - name: Trivy scan
+        id: trivy
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: image
@@ -60,10 +64,12 @@ jobs:
           severity: ${{ inputs.severity }}
           exit-code: "1"
 
-      # `always()`: a vulnerability finding above is where the report is most
-      # wanted, and `exit-code: 1` above would otherwise skip this step.
+      # `always()` with the outcome check: a vulnerability finding above is
+      # where the report is most wanted, and `exit-code: 1` above would
+      # otherwise skip this step - but if an earlier step failed the scan
+      # itself, no SARIF file exists to upload.
       - name: Upload SARIF to code scanning
-        if: always()
+        if: always() && steps.trivy.outcome != 'skipped'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
