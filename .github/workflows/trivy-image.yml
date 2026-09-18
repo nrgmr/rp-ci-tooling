@@ -41,6 +41,11 @@ jobs:
       # scanning tab.
       security-events: write
     steps:
+      # google-github-actions/auth writes the credentials file into
+      # $GITHUB_WORKSPACE, which checkout creates; without this the auth
+      # step fails before the scan starts.
+      - uses: actions/checkout@v7
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
         with:
@@ -64,12 +69,13 @@ jobs:
           severity: ${{ inputs.severity }}
           exit-code: "1"
 
-      # `always()` with the outcome check: a vulnerability finding above is
+      # `always()` with the hashFiles check: a vulnerability finding above is
       # where the report is most wanted, and `exit-code: 1` above would
-      # otherwise skip this step - but if an earlier step failed the scan
-      # itself, no SARIF file exists to upload.
+      # otherwise skip this step - but if Trivy failed before producing a
+      # report (bad image ref, DB download failure), there is no SARIF file
+      # to upload, so gate on its actual presence rather than the step outcome.
       - name: Upload SARIF to code scanning
-        if: always() && steps.trivy.outcome != 'skipped'
+        if: always() && hashFiles('trivy-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
