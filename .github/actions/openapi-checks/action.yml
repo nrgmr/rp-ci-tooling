@@ -81,29 +81,15 @@ runs:
         mkdir -p /tmp/baseline
         set +e
 
-        download_baseline() {
-          local version="$1"
-          echo "Fetching prod spec baseline version: $version"
-          OUTPUT=$(gcloud artifacts generic download \
-            --project="${{ inputs.gar-project }}" \
-            --location="${{ inputs.gar-location }}" \
-            --repository="${{ inputs.gar-repository }}" \
-            --package="${{ inputs.package-name }}" \
-            --version="$version" \
-            --destination="/tmp/baseline/" 2>&1)
-          EXIT=$?
-          if [[ "$EXIT" == "0" ]]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-            return 0
-          elif echo "$OUTPUT" | grep -qiE "NOT_FOUND|does not exist|not found"; then
-            return 1
-          else
-            echo "$OUTPUT"
-            echo "::error::Baseline fetch failed. Check GAR configuration (project, repository, package name)."
-            exit "$EXIT"
-          fi
-        }
-
+        # Existence is decided from this list, not by attempting a download
+        # and pattern-matching gcloud's error text: `generic download`'s
+        # not-found wording isn't a stable API contract (it changed under us
+        # between gcloud releases - "No files found for package: ..." isn't
+        # matched by a "not found" substring check), while `versions list`
+        # simply omits versions that don't exist. Once existence is
+        # confirmed here, a download failure below is a real error, not an
+        # expected "no baseline yet" case, so it can fail loudly without
+        # having to interpret gcloud's free text at all.
         LIST_OUTPUT=$(gcloud artifacts versions list \
           --project="${{ inputs.gar-project }}" \
           --location="${{ inputs.gar-location }}" \
@@ -113,7 +99,11 @@ runs:
           --format="value(name)" 2>&1)
         LIST_EXIT=$?
         if [[ "$LIST_EXIT" != "0" ]]; then
-          if echo "$LIST_OUTPUT" | grep -qiE "NOT_FOUND|does not exist|not found"; then
+          # The one case still decided from free text: the package itself
+          # doesn't exist yet (first spec ever for this service). Broadened
+          # defensively since this is the same kind of gcloud wording this
+          # fix is working around elsewhere.
+          if echo "$LIST_OUTPUT" | grep -qiE "NOT_FOUND|does not exist|not found|no such|could not find"; then
             LIST_OUTPUT=""
           else
             echo "$LIST_OUTPUT"
@@ -122,12 +112,32 @@ runs:
           fi
         fi
 
-        LATEST_SHA_VERSION=$(printf '%s\n' "$LIST_OUTPUT" | sed 's#.*/##' | grep '^sha-' | head -n 1)
-        if [[ -n "$LATEST_SHA_VERSION" ]] && download_baseline "$LATEST_SHA_VERSION"; then
+        VERSION_NAMES=$(printf '%s\n' "$LIST_OUTPUT" | sed 's#.*/##')
+
+        download_baseline() {
+          local version="$1"
+          echo "Fetching prod spec baseline version: $version"
+          if ! gcloud artifacts generic download \
+            --project="${{ inputs.gar-project }}" \
+            --location="${{ inputs.gar-location }}" \
+            --repository="${{ inputs.gar-repository }}" \
+            --package="${{ inputs.package-name }}" \
+            --version="$version" \
+            --destination="/tmp/baseline/"; then
+            echo "::error::Baseline fetch failed for version $version, which versions list just confirmed exists. Check GAR configuration (project, repository, package name)."
+            exit 1
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+        }
+
+        LATEST_SHA_VERSION=$(printf '%s\n' "$VERSION_NAMES" | grep '^sha-' | head -n 1)
+        if [[ -n "$LATEST_SHA_VERSION" ]]; then
+          download_baseline "$LATEST_SHA_VERSION"
           exit 0
         fi
 
-        if download_baseline "prod-baseline"; then
+        if printf '%s\n' "$VERSION_NAMES" | grep -qx "prod-baseline"; then
+          download_baseline "prod-baseline"
           exit 0
         fi
 
