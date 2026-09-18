@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/nrgmr/rp-ci-tooling/compare/v0.2.0...v0.2.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* baseline-fetch existence check tolerant of gcloud error wording AB[#33425](https://github.com/nrgmr/rp-ci-tooling/issues/33425) ([9058e6a](https://github.com/nrgmr/rp-ci-tooling/commit/9058e6a6c08c09d72cbff0966b3d34eeb83b326a))
+* **openapi-checks:** decide baseline existence from versions list, not download errors ([73939cb](https://github.com/nrgmr/rp-ci-tooling/commit/73939cbbb863923649d516aa87e9b52182605db1))
+
 ## [0.2.0](https://github.com/nrgmr/rp-ci-tooling/compare/v0.1.0...v0.2.0) (2026-09-16)
 
 
