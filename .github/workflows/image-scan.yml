@@ -29,6 +29,10 @@ on:
         description: "Comma-separated severities that fail the scan"
         type: string
         default: "CRITICAL,HIGH"
+      ignore-unfixed:
+        description: "Exclude vulnerabilities with no available fix from the scan"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -71,3 +75,4 @@ jobs:
           format: table
           severity: ${{ inputs.severity }}
           exit-code: "1"
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}

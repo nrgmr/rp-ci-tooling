@@ -237,7 +237,7 @@ jobs:
 
 ## image-scan.yml
 
-Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and uploads the SARIF result to the calling repo's code scanning tab. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`. The SARIF upload is best-effort: if the caller repo does not have GitHub Advanced Security (code scanning) enabled, the upload fails without failing the run, since the severity gate above already enforced the scan result.
+Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and prints the findings as a table in the job log. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`.
 
 ### Inputs
 
@@ -248,8 +248,9 @@ Scans an image already pushed to Artifact Registry with [Trivy](https://github.c
 | `service-account` | Yes | | GCP service account impersonated to read the image |
 | `gar-location` | Yes | | Artifact Registry region, used to configure the docker credential helper |
 | `severity` | No | `CRITICAL,HIGH` | Comma-separated severities that fail the scan |
+| `ignore-unfixed` | No | `true` | Exclude vulnerabilities with no available fix from the scan. Set to `false` to gate on unfixed findings too. |
 
-A reusable workflow's job permissions are capped by the caller's grant, so the caller must declare `id-token: write` (for the GCP OIDC auth step) and `security-events: write` (for the SARIF upload) itself, exactly as shown below - omitting them leaves the job with read-only access and the scan fails at runtime.
+A reusable workflow's job permissions are capped by the caller's grant, so the caller must declare `id-token: write` (for the GCP OIDC auth step) itself, exactly as shown below - omitting it leaves the job with read-only access and the scan fails at runtime.
 
 ### Usage
 
@@ -264,7 +265,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      security-events: write
     uses: nrgmr/rp-ci-tooling/.github/workflows/image-scan.yml@v1.2.0
     with:
       image-ref: us-west1-docker.pkg.dev/my-gcp-project/my-service/my-image:abc1234
