@@ -41,9 +41,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      # Required to upload the SARIF report to the caller repo's code
-      # scanning tab.
-      security-events: write
     steps:
       # google-github-actions/auth writes the credentials file into
       # $GITHUB_WORKSPACE, which checkout creates; without this the auth
@@ -62,30 +59,15 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${{ inputs.gar-location }}-docker.pkg.dev" --quiet
 
+      # table format prints findings directly in the job log. No caller
+      # repo has GHAS (code scanning) enabled, so a sarif-format scan
+      # uploaded there would be invisible - table is the only output
+      # anyone can actually see today.
       - name: Trivy scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ${{ inputs.image-ref }}
-          format: sarif
-          output: trivy-results.sarif
+          format: table
           severity: ${{ inputs.severity }}
           exit-code: "1"
-
-      # `always()` with the hashFiles check: a vulnerability finding above is
-      # where the report is most wanted, and `exit-code: 1` above would
-      # otherwise skip this step - but if Trivy failed before producing a
-      # report (bad image ref, DB download failure), there is no SARIF file
-      # to upload, so gate on its actual presence rather than the step outcome.
-      #
-      # continue-on-error: the security gate is the Trivy step's exit-code
-      # above. This upload only makes findings visible in the caller repo's
-      # code scanning tab, which requires GHAS - a paid add-on many caller
-      # repos don't have. A rejected upload should not fail a scan that
-      # already ran and already enforced severity.
-      - name: Upload SARIF to code scanning
-        if: always() && hashFiles('trivy-results.sarif') != ''
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-results.sarif
