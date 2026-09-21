@@ -15,11 +15,11 @@ uses: nrgmr/rp-ci-tooling/.github/workflows/<workflow>.yml@v1.2.0
 - [Branch promotion model](#branch-promotion-model)
 - [Combined service workflow](#combined-service-workflow)
 - [docker-build-push.yml](#docker-build-pushyml)
-- [gitleaks.yml](#gitleaksyml)
+- [image-scan.yml](#image-scanyml)
 - [python-lint-test.yml](#python-lint-testyml)
 - [python-openapi-generate.yml](#python-openapi-generateyml)
 - [release-promotion.yml](#release-promotionyml)
-- [trivy-image.yml](#trivy-imageyml)
+- [secret-scan.yml](#secret-scanyml)
 
 ---
 
@@ -202,7 +202,7 @@ jobs:
 
 ---
 
-## gitleaks.yml
+## secret-scan.yml
 
 Scans for secrets with [gitleaks](https://github.com/gitleaks/gitleaks). Language-agnostic: every service can call this the same way regardless of what `python-lint-test.yml` / `docker-build-push.yml` variant it also uses.
 
@@ -214,14 +214,14 @@ Scans for secrets with [gitleaks](https://github.com/gitleaks/gitleaks). Languag
 
 `full-history` rescans the entire history on every run, not just the diff. Adopting it on a repo with a real, unbaselined leak fails every run where this check exists. Before enabling it, run `gitleaks detect --source . -v` locally against the adopting repo and add a [`.gitleaksignore`](https://github.com/gitleaks/gitleaks#creating-a-baseline) baselining anything it finds.
 
-`pr-diff` avoids that adoption hazard entirely, at the cost of never seeing a secret already sitting in history.
+`pr-diff` avoids that adoption hazard entirely, at the cost of never seeing a secret already sitting in history. It reads `github.base_ref`, which only a `pull_request` trigger sets, so a `pr-diff` job fails immediately with an explicit error on any other trigger rather than scanning an empty range. A caller wanting `pr-diff` on pull requests and a periodic deep scan should use two jobs: `pr-diff` on `pull_request`, and the `full-history` default on `schedule`.
 
 Whether a failure here blocks a merge is a branch-protection decision on the caller's repo - mark this job a required status check, or don't - not something this workflow encodes. That also means the same workflow works unchanged on a `schedule` trigger, where there is no PR to block and a failure is the only signal.
 
 ### Usage
 
 ```yaml
-name: Gitleaks
+name: Secret scan
 
 on:
   push:
@@ -229,13 +229,13 @@ on:
   pull_request:
 
 jobs:
-  gitleaks:
-    uses: nrgmr/rp-ci-tooling/.github/workflows/gitleaks.yml@v1.2.0
+  secret-scan:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/secret-scan.yml@v1.2.0
 ```
 
 ---
 
-## trivy-image.yml
+## image-scan.yml
 
 Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and uploads the SARIF result to the calling repo's code scanning tab. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`.
 
@@ -265,7 +265,7 @@ jobs:
       contents: read
       id-token: write
       security-events: write
-    uses: nrgmr/rp-ci-tooling/.github/workflows/trivy-image.yml@v1.2.0
+    uses: nrgmr/rp-ci-tooling/.github/workflows/image-scan.yml@v1.2.0
     with:
       image-ref: us-west1-docker.pkg.dev/my-gcp-project/my-service/my-image:abc1234
       workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github

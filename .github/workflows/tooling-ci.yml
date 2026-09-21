@@ -47,6 +47,6 @@ jobs:
         with:
           fail_level: error
 
-  gitleaks:
+  secret-scan:
     name: Secret scan (self)
-    uses: ./.github/workflows/gitleaks.yml
+    uses: ./.github/workflows/secret-scan.yml

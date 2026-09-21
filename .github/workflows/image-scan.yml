@@ -1,4 +1,4 @@
-name: Trivy image scan
+name: Image scan
 
 # Scans an image already pushed to Artifact Registry for known OS and
 # dependency vulnerabilities. Reads the image back from the registry rather
@@ -30,8 +30,12 @@ on:
         type: string
         default: "CRITICAL,HIGH"
 
+permissions:
+  contents: read
+
 jobs:
   scan:
+    name: Image scan (trivy)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
