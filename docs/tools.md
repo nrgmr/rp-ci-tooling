@@ -237,7 +237,7 @@ jobs:
 
 ## image-scan.yml
 
-Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and uploads the SARIF result to the calling repo's code scanning tab. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`.
+Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and uploads the SARIF result to the calling repo's code scanning tab. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`. The SARIF upload is best-effort: if the caller repo does not have GitHub Advanced Security (code scanning) enabled, the upload fails without failing the run, since the severity gate above already enforced the scan result.
 
 ### Inputs
 
