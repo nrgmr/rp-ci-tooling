@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0](https://github.com/nrgmr/rp-ci-tooling/compare/v0.2.1...v0.3.0) (2026-09-22)
+
+
+### Features
+
+* add gitleaks and trivy-image workflows AB[#33419](https://github.com/nrgmr/rp-ci-tooling/issues/33419) ([14798bb](https://github.com/nrgmr/rp-ci-tooling/commit/14798bb8f4d6f6bd05006619ad4d019636f65968))
+* **ci:** add ignore-unfixed input to image-scan.yml ([ab1f7cf](https://github.com/nrgmr/rp-ci-tooling/commit/ab1f7cf241b42d7911d04f155b9e8ec96e1ee63c))
+
+
+### Bug Fixes
+
+* **ci:** bump actions/checkout and google-github-actions/auth off node20 ([24eec32](https://github.com/nrgmr/rp-ci-tooling/commit/24eec320f74bd2136880922ae8773814290d3871))
+* **ci:** bump actions/checkout and google-github-actions/auth off node20 AB[#33462](https://github.com/nrgmr/rp-ci-tooling/issues/33462) ([6353691](https://github.com/nrgmr/rp-ci-tooling/commit/6353691539b97205eb88d361fa973ede162c1b8e))
+* **ci:** make SARIF upload best-effort in image-scan.yml ([bcd6518](https://github.com/nrgmr/rp-ci-tooling/commit/bcd65184b71aed9d14d37ca086052870bbd84f91))
+* **ci:** pin setup-uv to a resolvable tag ([be045ee](https://github.com/nrgmr/rp-ci-tooling/commit/be045eec7999c8c60ae4644d4ac17c607f503600))
+* **ci:** pin trivy-action/upload-sarif to valid refs, parameterize gitleaks scope ([0f35001](https://github.com/nrgmr/rp-ci-tooling/commit/0f35001dda69310170c4e37bb1e5a511a5b350a4))
+* **ci:** switch image-scan.yml to table output, drop SARIF upload ([db67400](https://github.com/nrgmr/rp-ci-tooling/commit/db6740072c6f17e9a9d8a56112f62ce300f819b3))
+* **workflows:** checkout before GCP auth and gate SARIF upload on file presence ([7a1c1b8](https://github.com/nrgmr/rp-ci-tooling/commit/7a1c1b8715d3b3c192c368464e45713f2148738f))
+
 ## [0.2.1](https://github.com/nrgmr/rp-ci-tooling/compare/v0.2.0...v0.2.1) (2026-09-18)
 
 
