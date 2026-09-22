@@ -130,7 +130,7 @@ jobs:
 
       - name: Checkout reusable workflow tooling
         if: steps.due.outputs.due == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
