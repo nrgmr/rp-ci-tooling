@@ -50,10 +50,10 @@ jobs:
       pull-requests: write
       issues: write   # required for github.rest.issues.createComment on PR timelines
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Checkout reusable workflow tooling
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
