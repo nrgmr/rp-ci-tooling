@@ -15,9 +15,11 @@ uses: nrgmr/rp-ci-tooling/.github/workflows/<workflow>.yml@v1.2.0
 - [Branch promotion model](#branch-promotion-model)
 - [Combined service workflow](#combined-service-workflow)
 - [docker-build-push.yml](#docker-build-pushyml)
+- [image-scan.yml](#image-scanyml)
 - [python-lint-test.yml](#python-lint-testyml)
 - [python-openapi-generate.yml](#python-openapi-generateyml)
 - [release-promotion.yml](#release-promotionyml)
+- [secret-scan.yml](#secret-scanyml)
 
 ---
 
@@ -196,6 +198,79 @@ jobs:
       gar-repository: my-service
       gar-project: my-gcp-project
     secrets: inherit
+```
+
+---
+
+## secret-scan.yml
+
+Scans for secrets with [gitleaks](https://github.com/gitleaks/gitleaks). Language-agnostic: every service can call this the same way regardless of what `python-lint-test.yml` / `docker-build-push.yml` variant it also uses.
+
+### Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | No | `full-history` | `full-history` scans the entire commit history. `pr-diff` scans only the commits new to this PR (`origin/<base>..HEAD`); requires a `pull_request` trigger. Either mode fails the job on a finding, on every trigger, including `schedule`. |
+
+`full-history` rescans the entire history on every run, not just the diff. Adopting it on a repo with a real, unbaselined leak fails every run where this check exists. Before enabling it, run `gitleaks detect --source . -v` locally against the adopting repo and add a [`.gitleaksignore`](https://github.com/gitleaks/gitleaks#creating-a-baseline) baselining anything it finds.
+
+`pr-diff` avoids that adoption hazard entirely, at the cost of never seeing a secret already sitting in history. It reads `github.base_ref`, which only a `pull_request` trigger sets, so a `pr-diff` job fails immediately with an explicit error on any other trigger rather than scanning an empty range. A caller wanting `pr-diff` on pull requests and a periodic deep scan should use two jobs: `pr-diff` on `pull_request`, and the `full-history` default on `schedule`.
+
+Whether a failure here blocks a merge is a branch-protection decision on the caller's repo - mark this job a required status check, or don't - not something this workflow encodes. That also means the same workflow works unchanged on a `schedule` trigger, where there is no PR to block and a failure is the only signal.
+
+### Usage
+
+```yaml
+name: Secret scan
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  secret-scan:
+    uses: nrgmr/rp-ci-tooling/.github/workflows/secret-scan.yml@v1.2.0
+```
+
+---
+
+## image-scan.yml
+
+Scans an image already pushed to Artifact Registry with [Trivy](https://github.com/aquasecurity/trivy-action) and prints the findings as a table in the job log. Reads the image back from the registry, so it works whether the caller built with `docker-build-push.yml` or pushed server-side via Cloud Build - only a pullable reference is required. Fails the run (`exit-code: 1`) on any finding at or above `severity`.
+
+### Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `image-ref` | Yes | | Fully qualified image reference to scan, including tag or digest |
+| `workload-identity-provider` | Yes | | GCP Workload Identity Provider used to read the image from Artifact Registry |
+| `service-account` | Yes | | GCP service account impersonated to read the image |
+| `gar-location` | Yes | | Artifact Registry region, used to configure the docker credential helper |
+| `severity` | No | `CRITICAL,HIGH` | Comma-separated severities that fail the scan |
+| `ignore-unfixed` | No | `true` | Exclude vulnerabilities with no available fix from the scan. Set to `false` to gate on unfixed findings too. |
+
+A reusable workflow's job permissions are capped by the caller's grant, so the caller must declare `id-token: write` (for the GCP OIDC auth step) itself, exactly as shown below - omitting it leaves the job with read-only access and the scan fails at runtime.
+
+### Usage
+
+```yaml
+name: Image scan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    permissions:
+      contents: read
+      id-token: write
+    uses: nrgmr/rp-ci-tooling/.github/workflows/image-scan.yml@v1.2.0
+    with:
+      image-ref: us-west1-docker.pkg.dev/my-gcp-project/my-service/my-image:abc1234
+      workload-identity-provider: projects/123456789/locations/global/workloadIdentityPools/github/providers/github
+      service-account: nrg-elp-ci-prod-gha@nrg-bootstrap-master.iam.gserviceaccount.com
+      gar-location: us-west1
 ```
 
 ---
