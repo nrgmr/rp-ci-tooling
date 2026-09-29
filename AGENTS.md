@@ -18,6 +18,9 @@
   version-limit violations — the composite action branches on this code to
   implement the `override-version-limit` flow. Exit `1` is reserved for
   unexpected errors; exit `0` is clean.
+- Changing `scripts/approval_stale_check.py`: the `invalidated` output gates the
+  Teams step in `.github/workflows/back-merge.yml`. Judge `gh api` lookups by
+  exit code, never by stdout: it prints the error body on a 404.
 - Changing any `gen-spec/{language}/` script: the script is called from the
   corresponding language workflow and must write a valid OpenAPI JSON spec to
   stdout.

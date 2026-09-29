@@ -144,31 +144,23 @@ jobs:
       # easy-to-trust-by-mistake signal — delete it so its mere existence
       # stays trustworthy, and let the team know they need to re-approve.
       - name: Check whether staging's approval is now stale
+        id: stale
         if: (success() || failure()) && github.event.pull_request.base.ref == inputs.staging-branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          STAGING_BRANCH: ${{ inputs.staging-branch }}
+        run: python3 .rp-ci-tooling/scripts/approval_stale_check.py
+
+      - name: Notify Teams that staging's approval is stale
+        if: (success() || failure()) && steps.stale.outputs.invalidated == 'true'
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           STAGING_BRANCH: ${{ inputs.staging-branch }}
           MAIN_BRANCH: ${{ inputs.main-branch }}
         run: |
-          tag="approved-${STAGING_BRANCH}"
-          approved_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" -q '.object.sha' 2>/dev/null || true)
-          if [ -z "$approved_sha" ]; then
-            echo "no ${tag} tag set - nothing to invalidate" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          staging_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${STAGING_BRANCH}" -q '.object.sha')
-          if [ "$approved_sha" = "$staging_sha" ]; then
-            echo "${STAGING_BRANCH} still matches the last approval" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}"
-          echo "${tag} invalidated: ${STAGING_BRANCH} changed after approval" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -z "${{ secrets.TEAMS_WEBHOOK_URL }}" ]; then
+          if [ -z "$TEAMS_WEBHOOK_URL" ]; then
             echo "Set the TEAMS_WEBHOOK_URL secret to notify Teams when this happens." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -177,7 +169,7 @@ jobs:
           payload=$(jq -n --arg text \
             "Staging changed after approval: [${PR_TITLE}](${PR_URL}) merged into \`${STAGING_BRANCH}\`. Re-approve before promoting to \`${MAIN_BRANCH}\`, or this change will be missed." \
             '{text: $text}')
-          curl -sf -X POST "${{ secrets.TEAMS_WEBHOOK_URL }}" \
+          curl -sf -X POST "$TEAMS_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d "$payload" \
             || echo "Teams notification failed - see the run log." >> "$GITHUB_STEP_SUMMARY"
