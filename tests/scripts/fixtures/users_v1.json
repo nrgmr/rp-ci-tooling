@@ -1,0 +1,39 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Test", "version": "1.0.0"},
+  "paths": {
+    "/v1/auth/verify": {
+      "get": {"operationId": "verify_v1", "responses": {"204": {"description": "OK"}}}
+    },
+    "/v1/users": {
+      "get": {
+        "operationId": "list_users_v1",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "name"],
+                  "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_user_v1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {"type": "object", "properties": {"name": {"type": "string"}}}
+            }
+          }
+        },
+        "responses": {"201": {"description": "Created"}}
+      }
+    }
+  }
+}

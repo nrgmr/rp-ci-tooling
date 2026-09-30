@@ -12,8 +12,9 @@
 - Changing `spectral/rp-base.spectral.js`: verify the change does not silently
   break service-level `.spectral.yaml` overrides that extend it.
 - Changing `scripts/openapi_version_check.py`: any interface change to args,
-  exit codes, or GitHub Actions outputs (`has_breaking`, `is_major_bump`) must
-  be reflected in `.github/actions/openapi-checks/action.yml`.
+  exit codes, or GitHub Actions outputs (`has_breaking`, `is_major_bump`,
+  `route_summary`, `breaking_details`) must be reflected in
+  `.github/actions/openapi-checks/action.yml`.
 - Changing `scripts/openapi_version_limit_check.py`: preserve exit code `2` for
   version-limit violations — the composite action branches on this code to
   implement the `override-version-limit` flow. Exit `1` is reserved for

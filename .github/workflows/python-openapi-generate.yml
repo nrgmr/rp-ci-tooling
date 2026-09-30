@@ -39,6 +39,13 @@ on:
         description: "Override the concurrent version limit check — use only when retirement of the oldest version is already in progress"
         type: boolean
         default: false
+    secrets:
+      TEAMS_API_BREAKING_WEBHOOK_URL:
+        description: >
+          Teams incoming webhook URL, used only to announce a route major
+          version bump once it ships to main. Optional - skipped with a
+          step-summary note when unset.
+        required: false
 
 jobs:
   openapi-checks:
@@ -84,3 +91,4 @@ jobs:
           workload-identity-provider: ${{ inputs.workload-identity-provider }}
           service-account: ${{ inputs.service-account }}
           gar-project: ${{ inputs.gar-project }}
+          teams-webhook-url: ${{ secrets.TEAMS_API_BREAKING_WEBHOOK_URL }}

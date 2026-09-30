@@ -1,0 +1,22 @@
+name: Notify Teams
+description: >
+  Best-effort post to a Teams webhook. Plain text is sent as an Adaptive Card; a
+  JSON object is sent as-is. Never fails the calling job.
+
+inputs:
+  webhook-url:
+    description: "Teams incoming webhook URL. Empty skips the notification."
+    required: false
+    default: ""
+  message:
+    description: "Plain text, or a complete JSON object payload"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        MESSAGE: ${{ inputs.message }}
+      run: bash "${{ github.action_path }}/notify.sh"

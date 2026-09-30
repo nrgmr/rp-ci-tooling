@@ -28,6 +28,9 @@ inputs:
   gar-project:
     description: "GCP project hosting Artifact Registry"
     required: true
+  teams-webhook-url:
+    description: "Teams incoming webhook URL for route major version bump notices. Empty skips them."
+    default: ""
 
 runs:
   using: composite
@@ -371,9 +374,34 @@ runs:
           echo "::warning::Could not refresh prod-baseline alias; future checks will use $SHA_VERSION."
         fi
 
-    # Placeholder for future Teams notification when a route major version bump ships to prod.
-    - name: Placeholder - Teams route major version bump notification
+    # Main push only: announce a shipped route major version bump. This runs
+    # after the merge, so there is no pull_request event; the PR number comes
+    # from the merge or squash commit message when it carries one.
+    - name: Teams route major version bump notification
       if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.version-check.outputs.is_major_bump == 'true'
       shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.teams-webhook-url }}
+        SERVICE: ${{ inputs.package-name }}
+        ROUTE_SUMMARY: ${{ steps.version-check.outputs.route_summary }}
+        BREAKING_DETAILS: ${{ steps.version-check.outputs.breaking_details }}
+        COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        SPEC_URL: https://console.cloud.google.com/artifacts/generic/${{ inputs.gar-project }}/${{ inputs.gar-location }}/${{ inputs.gar-repository }}/${{ inputs.package-name }}?project=${{ inputs.gar-project }}
       run: |
-        # TODO: implement Teams notification for route major version bumps.
+        subject=${COMMIT_MESSAGE%%$'\n'*}
+        if [[ "$subject" =~ \(#([0-9]+)\)$ || "$subject" =~ ^Merge\ pull\ request\ \#([0-9]+) ]]; then
+          change_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${BASH_REMATCH[1]}"
+        else
+          change_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+        fi
+
+        MESSAGE=$(printf '%s\n\n' \
+          "**${SERVICE}: route major version bump merged to main**" \
+          "New route versions: ${ROUTE_SUMMARY}" \
+          "Breaking changes:" \
+          "$BREAKING_DETAILS" \
+          "Change: ${change_url}" \
+          "Spec artifact: ${SPEC_URL} (version sha-${GITHUB_SHA})" \
+          "Deprecation policy: API Versioning and Contract Standards, section 6 (https://nrgmr.atlassian.net/wiki/spaces/TEC/pages/3423174658)")
+        export MESSAGE
+        bash "${{ github.action_path }}/../notify-teams/notify.sh"
