@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/nrgmr/rp-ci-tooling/compare/v0.3.0...v0.4.0) (2026-09-30)
+
+
+### Features
+
+* **ci:** add notify-teams action and route major version bump notice AB[#33551](https://github.com/nrgmr/rp-ci-tooling/issues/33551) ([7ceaf3a](https://github.com/nrgmr/rp-ci-tooling/commit/7ceaf3ac92ac1631d21142fb51e2c3329a6cbb07))
+* **ci:** add notify-teams action and route major version bump notice AB[#33551](https://github.com/nrgmr/rp-ci-tooling/issues/33551) ([92f17d5](https://github.com/nrgmr/rp-ci-tooling/commit/92f17d56ecbceb1392687cc8f63ee2cc9557f202))
+
+
+### Bug Fixes
+
+* **ci:** cap the breaking-change list under the Teams payload limit ([2a1d223](https://github.com/nrgmr/rp-ci-tooling/commit/2a1d2230ab1cbb43b81c956ec52c170c2ece6ce3))
+* **ci:** list only ERR-level changes and name the notice after the merge ([8b5c44c](https://github.com/nrgmr/rp-ci-tooling/commit/8b5c44c19f73bd8fe88e83df6d400a5a8ba41c52))
+* **ci:** send notify-teams messages as an Adaptive Card ([7cbf26a](https://github.com/nrgmr/rp-ci-tooling/commit/7cbf26a312f0be1d6580a19b218e3bb1cf77fca6))
+* **ci:** surface failed Teams posts and split the breaking-change secret ([a22c23e](https://github.com/nrgmr/rp-ci-tooling/commit/a22c23e562c4097e4759069f122d650db5460361))
+
 ## [0.3.0](https://github.com/nrgmr/rp-ci-tooling/compare/v0.2.1...v0.3.0) (2026-09-22)
 
 
